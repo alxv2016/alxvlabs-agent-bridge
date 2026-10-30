@@ -73,7 +73,7 @@ flowchart LR
 | Input `[CC]` | Records |
 | --- | --- |
 | Any hook or status line from a session not yet seen | A session page, `done`, named `Claude Code` until Claude Code titles the session: a hook's `session_title`, the status line's `session_name`, or the transcript's `ai-title`, the latest of them — the developer's choice, 2026-10-29, so two sessions in one folder read apart. A subagent status line or a `SessionEnd` from a session not yet seen makes none |
-| `UserPromptSubmit` | Requests still open on its sub-agents closed, `answered_elsewhere`, and those sub-agents back to `working` — a deny in the terminal fires no hook; one with feedback arrives as this prompt, and the sub-agent works on until its own `SubagentStop` `[R]` 2026-10-29; the session's own open requests closed too, and the session `working`, detail `Thinking`, `tokens` 0 — a new turn — and its sub-agents that finished removed, one still running staying: the developer's choice, 2026-10-29, so the pages are the work in hand |
+| `UserPromptSubmit` | Requests still open on its sub-agents closed, `answered_elsewhere`, and those sub-agents back to `working` — a deny in the terminal fires no hook; one with feedback arrives as this prompt, and the sub-agent works on until its own `SubagentStop` `[R]` 2026-10-29; the session's own open requests closed too, and the session `working`, detail `Thinking`, and its sub-agents that finished removed, one still running staying: the developer's choice, 2026-10-29, so the pages are the work in hand |
 | `PreToolUse` | The agent's own open requests closed, `answered_elsewhere`; `working`, detail the tool and what it touches: `Bash: npm test`, `Edit: deck.cpp`, `WebFetch: example.com` |
 | `PreToolUse` for `AskUserQuestion`, the deck taking questions | As any `PreToolUse`, then `needs_you` and a question record, one part of the call at a time (§4). A question the deck cannot hold, over four options or with none, is left to the terminal |
 | `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …` — no request: allowing it only lets the question be asked, and its answer is the option the developer picks; seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29. So it reaches the deck at `PreToolUse`, and this hook means the terminal is asking |
@@ -85,8 +85,8 @@ flowchart LR
 | `SessionEnd` | Its sub-agents removed, then the session |
 | Status line | The session's `context_pct`, and the window for its model; usage, sent again as a reset's minutes change, and a window past its `resets_at` unknown — its share was the old window's, as Claude Code drops it then `[CC]` |
 | Usage cache `[R]` 2026-10-29 | Usage, when its fetch is newer than the last status line's arrival — the newer of the two always wins |
-| Subagent status line | Nothing: its `tokenCount` is a sub-agent's context, and the deck shows what an agent wrote |
-| Transcript `[R]` 2026-10-29 | An agent's `tokens`: its latest response's output tokens, thinking included, as far as the transcript has written them — the count beside "Thinking..." moves token by token, the deck's a block at a time; a sub-agent's page named after its `description`, as Claude Code's agent map titles it; a session named after its `ai-title`; a session's `context_pct` while no status line has given one, its window from a status line for its model, `--context-window`, or `KNOWN_WINDOWS` (`claude-opus-5-5` 1M, from the developer's session at 664k tokens with 31 % left before auto-compact) |
+| Subagent status line | Nothing: the VS Code extension runs none, and the transcript gives every session and sub-agent the same figure |
+| Transcript `[R]` 2026-10-30 | An agent's `tokens`, as Claude Code's agent map counts them: a session's context, a sub-agent's context with its last response's output, 85,457 + 3,287 for a map's `88.7k tokens`. A response's line carries its final count, written as it ends, and the bridge reads on at each hook, so the figure follows by a tool call; a sub-agent's page named after its `description`, as Claude Code's agent map titles it; a session named after its `ai-title`; a session's `context_pct` while no status line has given one, its window from a status line for its model, `--context-window`, or `KNOWN_WINDOWS` (`claude-opus-5-5` 1M, from the developer's session at 664k tokens with 31 % left before auto-compact) |
 
 ---
 
@@ -128,7 +128,7 @@ flowchart LR
 - **A session in the VS Code extension runs no status line.** It runs neither the status line nor the subagent status line `[R]`
   2026-10-29: its hooks give the pages, states, details and requests, Claude Code's usage cache the usage, which the extension does not write but the bridge's `claude -p /usage` does as the deck
   connects and hourly after, and a terminal session's status line brings with every response — its
-  transcripts what each agent wrote, the session's title and sub-agent names, and its context share once its model's window is known — from a
+  transcripts each agent's tokens, the session's title and sub-agent names, and its context share once its model's window is known — from a
   terminal session's status line for that model, `--context-window`, or `KNOWN_WINDOWS`; the transcript names the model without the window (`claude-opus-4-8`, where the
   status line says `claude-opus-4-8[1m]`) `[R]` 2026-10-29. `claude -p "/usage"` prints nothing `[R]` 2026-10-29;
   the plan's limits reach the bridge from a status line or the usage cache only.

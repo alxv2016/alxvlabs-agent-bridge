@@ -434,7 +434,6 @@ class Deck:
             out += self._close_for(key)
             a.set_state(WORKING, now)
             a.detail = "Thinking"
-            a.tokens = 0  # A new turn: no response written yet
             if key == sid:
                 # The session's sub-agents that finished go with the turn they worked in — the developer's choice,
                 # 2026-10-29; one still running, in the background or after a deny, stays.
@@ -519,7 +518,7 @@ class Deck:
         return []
 
     def _subagent_status(self, s: dict, now: float) -> list[dict]:
-        """Its `tokenCount` is a sub-agent's context, not what it wrote: the transcript gives the deck that."""
+        """Nothing: the transcript gives a sub-agent's tokens, in every session, the status line or not."""
         return []
 
     def _transcript(self, t: dict, now: float) -> list[dict]:
@@ -534,9 +533,10 @@ class Deck:
             a.name = fit(to_glass(t["description"]), NAME_CHARS)  # As Claude Code's agent map titles it
         if t.get("title") and not agent:
             a.name = fit(to_glass(t["title"]), NAME_CHARS)  # As Claude Code's session list titles it
-        if t.get("response_tokens") is not None:
-            a.tokens = max(0, int(t["response_tokens"]))  # What its latest response wrote, thinking included
         context = t.get("context_tokens")
+        if context is not None:
+            # As Claude Code's agent map counts them: a session's context, a sub-agent's with its last response.
+            a.tokens = max(0, int(context) + (int(t.get("response_tokens") or 0) if agent else 0))
         if context is None or agent or a.has_status:
             return []
         model = base_model(t.get("model", ""))

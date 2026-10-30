@@ -269,9 +269,9 @@ class Written(unittest.TestCase):
         d.feed("hook", h("SessionStart", sid="vs"), 0)
         out = d.feed("transcript", {"session_id": "vs", "model": "claude-opus-5-5", "context_tokens": 664000,
                                     "response_tokens": 1200}, 1)
-        self.assertEqual((out[0]["tokens"], out[0]["context_pct"]), (1200, 66))  # opus-5-5's 1M window, known
+        self.assertEqual((out[0]["tokens"], out[0]["context_pct"]), (664000, 66))  # opus-5-5's 1M window, known
         out = d.feed("hook", h("UserPromptSubmit", sid="vs"), 2)
-        self.assertEqual(out[0]["tokens"], 0)  # a new turn
+        self.assertEqual(out[0]["tokens"], 664000)  # a new turn leaves the context where it was
         d.feed("status", {"session_id": "cli", "model": {"id": "claude-x[1m]"},
                           "context_window": {"context_window_size": 1000000, "used_percentage": 5}}, 3)
         d.feed("hook", h("SessionStart", sid="vs2"), 4)
@@ -281,9 +281,10 @@ class Written(unittest.TestCase):
         d2.feed("hook", h("SubagentStart", agent_id="a1", agent_type="Explore"), 0)
         d2.feed("transcript", {"session_id": "s1", "model": "m", "context_tokens": 50000}, 1)
         out = d2.feed("transcript", {"session_id": "s1", "agent_id": "a1", "description": "Find the bug",
-                                     "response_tokens": 300}, 2)
+                                     "context_tokens": 85457, "response_tokens": 3287}, 2)
         self.assertEqual(d2.agents["s1"].context_pct, 25)
-        self.assertEqual((out[0]["name"], out[0]["tokens"]), ("Find the bug", 300))
+        # As the agent map counts it: a real sub-agent's 88.7k.
+        self.assertEqual((out[0]["name"], out[0]["tokens"]), ("Find the bug", 88744))
 
 
 class Refresh(unittest.TestCase):
