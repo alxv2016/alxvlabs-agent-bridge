@@ -12,6 +12,7 @@ import glob
 import io
 import json
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -458,7 +459,7 @@ class Plugin(unittest.TestCase):
         for event, matchers in hooks.items():
             (entry,) = matchers[0]["hooks"]
             self.assertEqual(entry["command"], 'python3 "${CLAUDE_PLUGIN_ROOT}/hook.py" hook --plugin')
-            want = install.REQUEST_TIMEOUT_S if event == "PermissionRequest" else install.HOOK_TIMEOUT_S
+            want = install.REQUEST_TIMEOUT_S if event in install.HELD_EVENTS else install.HOOK_TIMEOUT_S
             self.assertEqual(entry["timeout"], want, event)
         with open(os.path.join(HERE, ".claude-plugin", "plugin.json")) as f:
             self.assertEqual(json.load(f)["name"], hook.PLUGIN)
@@ -507,6 +508,176 @@ class Hold(unittest.TestCase):
         self.assertIsNone(result["answer"])
         self.assertEqual(json.loads(out.getvalue().splitlines()[-1]),
                          {"type": "close", "id": 1, "reason": "timed_out"})
+
+
+TWO_QUESTIONS = {"questions": [
+    {"question": "Which base branch?", "header": "Branch", "multiSelect": False,
+     "options": [{"label": "main", "description": "The release branch"}, {"label": "develop", "description": ""}]},
+    {"question": "What else?", "header": "Plan", "multiSelect": True,
+     "options": [{"label": "Tests"}, {"label": "Docs"}, {"label": "Pull request"}]}]}
+
+
+class Questions(unittest.TestCase):
+    def ask(self, tool_input=None):
+        d = Deck()
+        d.asks_questions = True
+        return d, d.feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=tool_input or TWO_QUESTIONS), 0)
+
+    def test_a_question_reaches_a_deck_that_takes_them(self):
+        _, out = self.ask()
+        self.assertEqual(out[-2]["state"], "needs_you")
+        self.assertEqual(out[-1], {"type": "question", "id": 1, "agent": 1, "part": 0, "tool": "Branch 1/2",
+                                   "question": "Which base branch?", "multi": False,
+                                   "options": ["main: The release branch", "develop"]})
+
+    def test_a_deck_on_older_firmware_keeps_the_terminal(self):
+        out = Deck().feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS), 0)
+        self.assertNotIn("question", [r["type"] for r in out])
+
+    def test_a_question_the_deck_cannot_hold_stays_in_the_terminal(self):
+        many = {"questions": [{"question": "Which?", "options": [{"label": str(i)} for i in range(5)]}]}
+        d = Deck()
+        d.asks_questions = True
+        out = d.feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=many), 0)
+        self.assertNotIn("question", [r["type"] for r in out])
+
+    def test_each_part_follows_the_last_and_the_answers_are_keyed_by_question(self):
+        d, _ = self.ask()
+        out, settled, answers = d.answered_question(1, 0, 0b01, 1)
+        self.assertEqual((out[0]["part"], out[0]["tool"], out[0]["multi"], settled), (1, "Plan 2/2", True, False))
+        self.assertEqual(d.snapshot(1)[-1]["part"], 1)  # A deck that comes back gets the part in hand
+        out, settled, answers = d.answered_question(1, 1, 0b101, 2)
+        self.assertTrue(settled)
+        self.assertEqual(answers, {"Which base branch?": "main", "What else?": "Tests, Pull request"})
+        self.assertEqual(d.agents["s1"].state, "working")
+        self.assertEqual(d.requests, {})
+
+    def test_a_resent_answer_changes_nothing(self):
+        d, _ = self.ask()
+        d.answered_question(1, 0, 0b10, 1)
+        self.assertEqual(d.answered_question(1, 0, 0b01, 2), ([], False, None))
+        self.assertEqual(d.asks[1].answers, {"Which base branch?": "develop"})
+
+    def test_nothing_chosen_leaves_the_call_to_the_terminal(self):
+        d, _ = self.ask()
+        self.assertEqual(d.answered_question(1, 0, 0, 1), ([], True, None))
+        self.assertEqual(d.requests, {})
+        self.assertEqual(d.agents["s1"].state, "needs_you")
+
+    def test_an_answer_in_the_terminal_closes_it(self):
+        d, _ = self.ask()
+        out = d.feed("hook", h("PostToolUse", tool_name="AskUserQuestion"), 1)
+        self.assertEqual(out[0], {"type": "close", "id": 1, "reason": "answered_elsewhere"})
+        self.assertEqual(d.asks, {})
+
+    def bridge_holding(self, seconds=5):
+        out = io.StringIO()
+        b = bridge.Bridge(None, out, hold_s=5, question_hold_s=seconds)
+        b.deck.asks_questions = True
+        b.take("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
+        result = {}
+        t = threading.Thread(target=lambda: result.setdefault("answer", b.hold(1, seconds)))
+        t.start()
+        for _ in range(100):
+            if 1 in b.waiting:
+                break
+            threading.Event().wait(0.01)
+        return b, t, result, out
+
+    def test_the_hook_goes_back_with_every_answer(self):
+        b, t, result, out = self.bridge_holding()
+        b.answer(1, 0, 0b01)
+        self.assertEqual(json.loads(out.getvalue().splitlines()[-1])["part"], 1)
+        self.assertFalse(result)
+        b.answer(1, 1, 0b10)
+        t.join(2)
+        self.assertEqual(result["answer"], {"Which base branch?": "main", "What else?": "Docs"})
+
+    def test_a_question_left_to_the_terminal_lets_the_hook_go_with_none(self):
+        b, t, result, _ = self.bridge_holding()
+        b.answer(1, 0, 0)
+        t.join(2)
+        self.assertIsNone(result["answer"])
+
+    def test_a_question_held_past_its_hold_closes_as_timed_out(self):
+        b, t, result, out = self.bridge_holding(0.05)
+        t.join(2)
+        self.assertIsNone(result["answer"])
+        self.assertEqual(json.loads(out.getvalue().splitlines()[-1]),
+                         {"type": "close", "id": 1, "reason": "timed_out"})
+
+    def test_a_refusal_in_the_terminal_closes_the_request_from_the_transcript(self):
+        d = Deck()
+        d.feed("hook", h("PreToolUse", tool_name="Bash", tool_use_id="toolu_1", tool_input={"command": "ls"}), 0)
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}), 1)
+        self.assertEqual(d.feed("transcript", {"session_id": "s1", "tool_results": ["toolu_0"]}, 2), [])
+        out = d.feed("transcript", {"session_id": "s1", "tool_results": ["toolu_1"]}, 3)
+        self.assertEqual(out[0], {"type": "close", "id": 1, "reason": "answered_elsewhere"})
+        self.assertEqual(d.agents["s1"].state, "working")
+        self.assertEqual(d.request_uses, {})
+
+    def test_the_transcript_says_which_tool_calls_ended(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.jsonl")
+            line = {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_1"}]}}
+            with open(path, "w") as f:
+                f.write(json.dumps(line) + "\n")
+            out = Transcripts().observe(h("PermissionRequest", transcript_path=path))
+            self.assertEqual(out, [{"session_id": "s1", "tool_results": ["toolu_1"]}])
+
+    def test_a_tool_that_fails_closes_its_request(self):
+        d = Deck()
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "false"}), 0)
+        out = d.feed("hook", h("PostToolUseFailure", tool_name="Bash"), 1)
+        self.assertEqual(out[0], {"type": "close", "id": 1, "reason": "answered_elsewhere"})
+
+    def test_a_hook_claude_code_stopped_closes_its_request(self):
+        out = io.StringIO()
+        b = bridge.Bridge(None, out, hold_s=5)
+        b.take("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}))
+        self.assertIsNone(b.hold(1, gone=lambda: True))
+        self.assertEqual(json.loads(out.getvalue().splitlines()[-2]),
+                         {"type": "close", "id": 1, "reason": "answered_elsewhere"})
+
+    def test_a_hook_that_left_is_seen_on_its_connection(self):
+        here, there = socket.socketpair()
+        self.assertFalse(bridge.peer_gone(here))
+        there.close()
+        self.assertTrue(bridge.peer_gone(here))
+        here.close()
+
+    def test_an_answer_that_beats_the_hooks_hold_is_kept(self):
+        b = bridge.Bridge(None, io.StringIO(), hold_s=5, question_hold_s=5)
+        b.deck.asks_questions = True
+        b.take("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
+        b.answer(1, 0, 0)  # The deck's queue was full: back before the hook reached hold()
+        self.assertIsNone(b.hold(1, 5))
+        self.assertEqual(b.waiting, {})
+
+    def test_a_write_failing_under_the_lock_does_not_wedge_the_bridge(self):
+        class Failing:
+            def __init__(self, bridge_):
+                self.bridge = bridge_
+
+            def send(self, record):
+                self.bridge.on_lost()  # What SerialLink.close() does on a failed write
+                return False
+
+        b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+        b.link = Failing(b)
+        done = threading.Event()
+        threading.Thread(target=lambda: (b.take("hook", h("SessionStart")), done.set()), daemon=True).start()
+        self.assertTrue(done.wait(2))
+
+    def test_the_decks_hello_says_whether_it_takes_questions(self):
+        b = bridge.Bridge(None, io.StringIO())
+        b.link = type("L", (), {"send": lambda self, r: None})()
+        b.on_record({"type": "hello", "version": 1})
+        self.assertFalse(b.deck.asks_questions)
+        b.on_record({"type": "hello", "version": 2})
+        self.assertTrue(b.deck.asks_questions)
+        b.on_lost()
+        self.assertFalse(b.deck.asks_questions)
 
 
 class Link(unittest.TestCase):

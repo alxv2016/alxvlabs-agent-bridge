@@ -15,6 +15,8 @@ a recording replays with no transcript on disk (DESIGN.md §3):
         # beside "Thinking..." shows them, from zero with each response — as far as the transcript has written it
     {"session_id", "title"}                                   # the session's title, as Claude Code names it
     {"session_id", "agent_id", "description"}                 # a sub-agent's, once
+    {"session_id", "agent_id"?, "tool_results"}               # the tool calls that ended: their tool_use ids, a refused
+                                                              # one's too, which no hook reports (DESIGN.md §4)
 
 The transcript's format is not documented; it is read as Claude Code 2.1.195 writes it, and a line it cannot read
 is skipped.
@@ -67,35 +69,45 @@ class Transcripts:
         self.titles: dict[str, str] = {}
         self.described: set[tuple] = set()
 
-    def _read(self, path: str, own: bool) -> tuple[tuple | None, str | None]:
-        """What a transcript adds since the last read: (model, context, output tokens) of its newest response, and a
-        new title. A response is written a block at a time, each with the usage so far, so its largest is the latest.
-        A sub-agent's own file marks every line `isSidechain`; in a session's file such a line is a sub-agent's
-        (`own` False)."""
+    def _read(self, path: str, own: bool) -> tuple[tuple | None, str | None, list[str]]:
+        """What a transcript adds since the last read: (model, context, output tokens) of its newest response, a new
+        title, and the tool calls that ended. A response is written a block at a time, each with the usage so far, so
+        its largest is the latest. A sub-agent's own file marks every line `isSidechain`; in a session's file such a
+        line is a sub-agent's (`own` False)."""
         tail = self.tails.setdefault(path, Tail(path))
         latest, title = None, None
         newest_id, written = None, 0
+        ended: list[str] = []
         for d in tail.lines():
             if not isinstance(d, dict) or (d.get("isSidechain") and not own):
                 continue
             if d.get("type") == "ai-title" and d.get("aiTitle"):
                 title = str(d["aiTitle"])
             m = d.get("message")
+            if d.get("type") == "user" and isinstance(m, dict) and isinstance(m.get("content"), list):
+                ended += [str(b["tool_use_id"]) for b in m["content"] if isinstance(b, dict)
+                          and b.get("type") == "tool_result" and b.get("tool_use_id")]
             if d.get("type") == "assistant" and isinstance(m, dict) and isinstance(m.get("usage"), dict):
-                out = int(m["usage"].get("output_tokens") or 0)
+                try:
+                    out = int(m["usage"].get("output_tokens") or 0)
+                    context = context_tokens(m["usage"])
+                except (TypeError, ValueError):
+                    continue  # The format is undocumented: a line it cannot read is skipped
                 if m.get("id") != newest_id or newest_id is None:
                     newest_id, written = m.get("id"), out
                 else:
                     written = max(written, out)
-                latest = (str(m.get("model") or ""), context_tokens(m["usage"]), written)
-        return latest, title
+                latest = (str(m.get("model") or ""), context, written)
+        return latest, title, ended
 
     def _context(self, sid: str, agent: str, path: str) -> list[dict]:
-        latest, title = self._read(path, own=bool(agent))
+        latest, title, ended = self._read(path, own=bool(agent))
         out = []
         if title and not agent and self.titles.get(sid) != title:
             self.titles[sid] = title
             out.append({"session_id": sid, "title": title})
+        if ended:
+            out.append({"session_id": sid, "tool_results": ended, **({"agent_id": agent} if agent else {})})
         if latest is None or self.sent.get((sid, agent)) == latest:
             return out
         self.sent[(sid, agent)] = latest

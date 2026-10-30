@@ -49,10 +49,11 @@ LABEL = "local.agent-deck.bridge"
 AGENT_PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LOG = os.path.expanduser("~/Library/Logs/agent-deck-bridge.log")
 BRIDGE_PORT = int(os.environ.get("DECK_BRIDGE_PORT", "8737"))
-EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PermissionRequest",
-          "PermissionDenied", "Notification", "Stop", "SubagentStart", "SubagentStop")
+EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+          "PermissionRequest", "PermissionDenied", "Notification", "Stop", "SubagentStart", "SubagentStop")
 HOOK_TIMEOUT_S = 5
-REQUEST_TIMEOUT_S = 600  # A permission request the bridge holds for the device: over hook.py's REQUEST_TIMEOUT_S
+REQUEST_TIMEOUT_S = 600  # A permission request or question the bridge holds for the device: over hook.py's REQUEST_TIMEOUT_S
+HELD_EVENTS = ("PermissionRequest", "PreToolUse")  # hook.py's own limits keep every other PreToolUse to 2 s
 
 
 def command(kind: str) -> str:
@@ -89,7 +90,7 @@ def add(settings: dict) -> dict:
     for event in EVENTS:
         hooks.setdefault(event, []).append(
             {"hooks": [{"type": "command", "command": command("hook"),
-                        "timeout": REQUEST_TIMEOUT_S if event == "PermissionRequest" else HOOK_TIMEOUT_S}]})
+                        "timeout": REQUEST_TIMEOUT_S if event in HELD_EVENTS else HOOK_TIMEOUT_S}]})
     settings["statusLine"] = {"type": "command", "command": command("status")}
     settings["subagentStatusLine"] = {"type": "command", "command": command("subagent-status")}
     return settings

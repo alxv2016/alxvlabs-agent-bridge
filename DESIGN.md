@@ -1,14 +1,14 @@
 # Agent deck bridge — design
 
 How the bridge works and why: what it reads from Claude Code, the records it makes, how it holds a permission request
-for the deck, how the plugin and `install.py` set it up, and what is still open. For whoever changes the bridge; how
+or a question for the deck, how the plugin and `install.py` set it up, and what is still open. For whoever changes the bridge; how
 to install and use it is the [README](README.md).
 
 **Source of truth.** The code in this folder, and this doc for the reasons. Claude Code's behaviour comes from its
 documentation at code.claude.com `[CC]` and from real sessions recorded through the bridge `[R]`; where this doc and
 Claude Code's documentation disagree, the documentation wins. The deck's side — its screens, the records it takes
 and the link on the USB cable — is the firmware repo's
-[docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-timer/blob/main/docs/ONX2424G013_AGENT_DECK.md): the records are its §6, the link its §16, and how Claude Code reaches the deck
+[docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md): the records are its §6, the link its §16, and how Claude Code reaches the deck
 its §3.
 
 **Stability.** The code cites this doc as `DESIGN.md §n`. Do not renumber; add new material under the next free
@@ -36,7 +36,7 @@ number.
 ## 1. What it is
 
 The bridge runs on the Mac beside Claude Code and turns its hooks and status lines into the deck's records, sent
-over the USB-C cable; the deck sends back the developer's answer to a permission request, which the bridge gives
+over the USB-C cable; the deck sends back the developer's answer to a permission request or a question, which the bridge gives
 Claude Code as the hook's response. Python 3.9 or later, the standard library only.
 
 ```mermaid
@@ -75,9 +75,10 @@ flowchart LR
 | Any hook or status line from a session not yet seen | A session page, `done`, named `Claude Code` until Claude Code titles the session: a hook's `session_title`, the status line's `session_name`, or the transcript's `ai-title`, the latest of them — the developer's choice, 2026-10-29, so two sessions in one folder read apart. A subagent status line or a `SessionEnd` from a session not yet seen makes none |
 | `UserPromptSubmit` | Requests still open on its sub-agents closed, `answered_elsewhere`, and those sub-agents back to `working` — a deny in the terminal fires no hook; one with feedback arrives as this prompt, and the sub-agent works on until its own `SubagentStop` `[R]` 2026-10-29; the session's own open requests closed too, and the session `working`, detail `Thinking`, `tokens` 0 — a new turn — and its sub-agents that finished removed, one still running staying: the developer's choice, 2026-10-29, so the pages are the work in hand |
 | `PreToolUse` | The agent's own open requests closed, `answered_elsewhere`; `working`, detail the tool and what it touches: `Bash: npm test`, `Edit: deck.cpp`, `WebFetch: example.com` |
-| `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …` — no request: allowing it only lets the question be asked, and its answer is the option the developer picks, in the terminal; seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29 |
+| `PreToolUse` for `AskUserQuestion`, the deck taking questions | As any `PreToolUse`, then `needs_you` and a question record, one part of the call at a time (§4). A question the deck cannot hold, over four options or with none, is left to the terminal |
+| `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …` — no request: allowing it only lets the question be asked, and its answer is the option the developer picks; seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29. So it reaches the deck at `PreToolUse`, and this hook means the terminal is asking |
 | `PermissionRequest` | On the agent that asked — from inside a sub-agent it carries `agent_id` `[R]` 2026-10-29 — `needs_you`, then a request: the whole command and its description, the path and diff or new content, the URL and prompt, or else the input's fields one a line; over 2048 B of UTF-8 cut on a character and marked `cut` |
-| `PostToolUse`, `PermissionDenied` | The agent's open request for that tool closed, `answered_elsewhere`; `working`. An allow in the terminal shows as the tool's `PostToolUse` `[R]` 2026-10-29 |
+| `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | The agent's open request for that tool closed, `answered_elsewhere`; `working`. An allow in the terminal shows as the tool's `PostToolUse` `[R]` 2026-10-29, or `PostToolUseFailure` when it fails, each only once the tool has finished `[CC]` |
 | `Notification` (`permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input`) | The session `needs_you`, unless a request from it or its sub-agents is open: the notice carries no `agent_id` `[R]` 2026-10-29 |
 | `Stop`, `SubagentStop` | `done`; open requests closed; a detail of `Thinking` cleared. A session stops while a sub-agent it started works on, its `Agent` tool call already answered `[R]` 2026-10-29 |
 | `SubagentStart`; a hook with `agent_id` | A sub-agent page under its session, `working`, named after `agent_type` until its transcript gives a description. A hook from an `agent_id` never started and with no `agent_type` makes none: Claude Code runs such an agent for itself about a second after each `Stop`, and it sends only its `SubagentStop` `[R]` 2026-10-29 |
@@ -96,9 +97,34 @@ flowchart LR
   hold, then goes back with no decision and the request closes `timed_out`. A request answered in the terminal
   lets its hook go at once with none, so a late answer from the deck reaches nothing. `hook.py` waits 590 s on a
   permission request (`REQUEST_TIMEOUT_S`) inside its hook's 600 s `timeout` (`install.py`, `hooks/hooks.json`). With no deck attached
-  and no `--answer`, every request goes back at once with no decision ([AGENT_DECK §16](https://github.com/alxv2016/nextion-timer/blob/main/docs/ONX2424G013_AGENT_DECK.md#16-link)).
+  and no `--answer`, every request goes back at once with no decision ([AGENT_DECK §16](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md#16-link)).
+- **No hook says the terminal answered** `[CC]`: an allow shows only when its tool ends, and a manual deny fires
+  nothing, `PermissionDenied` being auto mode's and `Stop` not running on an interrupt. So the bridge looks in two more
+  places while a request is open. Each second it reads on in the transcript for a `tool_result` of the call it holds,
+  by the `tool_use_id` of its `PreToolUse`, which a refused call should have at once `[?]` (§8); the format is
+  undocumented, as transcripts are. Every 250 ms (`GONE_POLL_S`) it looks at the hook's connection, which closes if
+  Claude Code stops the hook; whether it does is undocumented (§8). Either closes the request `answered_elsewhere`.
+  An allow whose tool runs for minutes, if Claude Code leaves the hook running, still shows until the tool ends.
+- **A question is held at `PreToolUse`, not at `PermissionRequest`.** Only there can a hook answer it: `allow` with
+  `updatedInput` holding the input's `questions` and an `answers` map runs the tool without prompting, and `allow`
+  alone is not enough `[CC]`. `answers` is keyed by each question's text, its value the option's `label`, several
+  joined with `, ` `[CC]`. The same at `PermissionRequest` is undocumented and not tried.
+- **Nothing shows in the terminal while a question is held**, as the prompt comes after `PreToolUse`, so there is no
+  answering in both places as a request has. A call is held `--question-hold` seconds (120 by default, under 580), all
+  its parts together: long enough to reach the knob, short enough that a developer at the keyboard is not left waiting. Then it closes
+  `timed_out` and the terminal asks. The hook's `timeout` is 600 s for every `PreToolUse`, a ceiling: `hook.py`'s own
+  2 s still bounds every other tool.
+- **The deck says it takes questions**: `hello` with `version` 2 or later turns them on (`asks_questions`), and losing
+  the deck turns them off. A deck on older firmware never gets a record it would drop while its hook waits; it keeps
+  `needs_you` and the terminal.
+- **One record to a part.** The link drops JSON nested past two levels, and a call holds up to four questions of
+  objects, so each goes as a flat `question` record, the next once the last is answered, under one `id` with its
+  `part`. The deck answers `{"id", "part", "chosen"}`, bit n for option n, and the `ack` gives the `part` back; a
+  resend of an earlier part changes nothing. `chosen` 0 leaves the whole call to the terminal: KEY held on the question, or the deck's queue full.
+- **An option's card is `label: description`**, 96 characters, the glass stopping it at four lines; what goes back
+  is always the `label`. "Other" and free text are the terminal's.
 - **`--answer allow|deny SECONDS` stands in for the device**, answering each held request so long after it
-  opens — the answers tried with no deck attached.
+  opens — the answers tried with no deck attached. It leaves questions alone: their answer is the developer's.
 - **A session in the VS Code extension runs no status line.** It runs neither the status line nor the subagent status line `[R]`
   2026-10-29: its hooks give the pages, states, details and requests, Claude Code's usage cache the usage, which the extension does not write but the bridge's `claude -p /usage` does as the deck
   connects and hourly after, and a terminal session's status line brings with every response — its
@@ -109,7 +135,7 @@ flowchart LR
 - **Text reaches the records as the glass draws it** — ASCII, `°` and `•`, every other character `?`; names
   40, details 64 and tools 48 characters, cut with `...`.
 - **An agent record goes out only when something but `since_s` changed** — the device counts `since_s` up
-  itself ([AGENT_DECK §6](https://github.com/alxv2016/nextion-timer/blob/main/docs/ONX2424G013_AGENT_DECK.md#6-data-the-screens-take)).
+  itself ([AGENT_DECK §6](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md#6-data-the-screens-take)).
 - **A recording holds prompts, commands and file contents.** It stays in `$TMPDIR`, outside the repo; only its
   `scrub.py` output, read first, goes in `fixtures/`, beside the records `replay.py` makes of it.
 
@@ -195,4 +221,6 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 | Item | Status | Unblocked by |
 | --- | --- | --- |
 | The bridge on Windows (§7): the deck as a COM port, the hooks through Git Bash or PowerShell, the login task | Open `[?]` | The Windows serial back end, run on a Windows PC with the deck attached |
+| A request answered in the terminal, in a real session: that a deny's `tool_result` reaches the transcript at once, and whether Claude Code stops the held hook, which decides how fast an allow leaves the deck | Open `[?]` | One allow and one deny in the terminal, with a long-running tool |
+| A question answered on the deck in a real session: Claude Code taking `answers` from a `PreToolUse` hook with a multi-select's labels joined, and what a developer pressing Esc during the hold leaves behind | Open `[?]` | One real `AskUserQuestion` with the deck attached |
 | The plugin end to end: installed from the GitHub marketplace, the bridge started by a hook, stopped by a disable and by an uninstall | Open `[?]` | One install from `alxv2016/alxvlabs-agent-bridge` with the deck attached |

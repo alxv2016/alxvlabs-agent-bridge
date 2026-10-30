@@ -27,8 +27,8 @@ import time
 
 PORT = int(os.environ.get("DECK_BRIDGE_PORT", "8737"))
 TIMEOUT_S = {"hook": 2.0, "status": 0.3, "subagent-status": 0.3}
-# A permission request waits while the bridge holds it for the device: under its hook's timeout in install.py and
-# hooks/hooks.json.
+# A permission request or a question waits while the bridge holds it for the device: under its hook's timeout in
+# install.py and hooks/hooks.json.
 REQUEST_TIMEOUT_S = 590.0
 HERE = os.path.dirname(os.path.abspath(__file__))
 PLUGIN = "alxvlabs-agent-deck"  # .claude-plugin/plugin.json's name
@@ -129,7 +129,8 @@ def main() -> int:
     if plugin and installed_by_hand():
         return 0
     body = sys.stdin.buffer.read()
-    timeout = REQUEST_TIMEOUT_S if kind == "hook" and b'"PermissionRequest"' in body else TIMEOUT_S[kind]
+    held = b'"PermissionRequest"' in body or (b'"PreToolUse"' in body and b'"AskUserQuestion"' in body)
+    timeout = REQUEST_TIMEOUT_S if kind == "hook" and held else TIMEOUT_S[kind]
     answer = (post_starting if plugin and kind == "hook" and can_start() else post)(kind, body, timeout)
     if kind == "hook" and answer:
         sys.stdout.buffer.write(answer)

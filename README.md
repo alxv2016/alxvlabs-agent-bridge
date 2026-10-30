@@ -1,12 +1,12 @@
 # Agent deck bridge
 
 The [agent deck](https://github.com/alxv2016/nextion-agent-deck) is a small round knob display that sits on your desk and shows what Claude Code is doing: your
-plan's usage, each session and sub-agent at work, and permission requests you can answer with the knob. This
+plan's usage, each session and sub-agent at work, and permission requests and questions you can answer with the knob. This
 bridge is the part that runs on your Mac. It takes what Claude Code reports and sends it to the deck over the
 USB-C cable, and it sends your answers back.
 
 It is a Claude Code plugin, `alxvlabs-agent-deck`, and a folder of Python scripts with nothing to install beyond
-Python itself. The firmware for the deck is [alxv2016/nextion-timer](https://github.com/alxv2016/nextion-timer).
+Python itself. The firmware for the deck is [alxv2016/nextion-agent-deck](https://github.com/alxv2016/nextion-agent-deck).
 
 ## What you need
 
@@ -98,11 +98,15 @@ bottom of a terminal Claude Code session reads `deck | …` while the bridge run
   when you send the session's next prompt (one still running stays); a session's goes when Claude Code ends it (`/exit` in a terminal).
 - **The token count** on a page is what that agent's latest response has written, thinking included: the number
   Claude Code shows beside "Thinking...", from zero with each response. It moves a block at a time, not token by token.
-- **Permission requests** open on the deck by themselves. Scroll to the end and press the knob on Allow or Deny.
-  Claude Code's own prompt shows at the same time, and whichever you answer first settles it. Hold the knob to put
-  a request aside and answer it later.
-- **Questions Claude asks you**, with options to pick from, show on the deck as `Question: …` but are answered in
-  Claude Code: the deck cannot pick an option for you.
+- **Permission requests** open on the deck by themselves, with the focus on Allow. Text too long for the deck is cut,
+  and its last line says to read the full text in Claude Code; you can still answer on the deck. Claude Code's own
+  prompt shows at the same time, and whichever you answer first settles it. Hold the knob to put a request aside and
+  answer it later.
+- **Questions Claude asks you** open on the deck too, each option a card. Press the knob to choose, then on Send.
+  Claude Code shows nothing while the deck has a question: hold the knob to hand it to Claude Code at once, for an
+  answer of your own. Left alone it goes there after two minutes (`--question-hold`). This needs firmware from the
+  version that added questions; on older firmware they stay in Claude Code. With `install.py`, run it again to
+  update the hooks.
 - **Plan usage** comes from Claude Code. The VS Code extension does not save the figures its panel shows, so the
   bridge asks Claude Code for them when the deck connects and once an hour after (`claude -p /usage`, which asks
   the model nothing). A terminal session updates them after every reply.
@@ -128,6 +132,7 @@ By hand it prints each update it sends the deck, and the deck's own log lines as
 | --- | --- |
 | `--serial PATH` | The deck's port, when more than one `/dev/cu.usbmodem*` (Linux: `/dev/ttyACM*`) is plugged in |
 | `--hold SECONDS` | How long a request waits for the deck before it is left to Claude Code alone (570) |
+| `--question-hold SECONDS` | How long a question waits for the deck before Claude Code asks it, all its parts together (120) |
 | `--refresh-usage SECONDS` | How often to ask Claude Code for the plan's usage while the deck is attached (3600; 0 never) |
 | `--context-window TOKENS` | The context window to show a VS Code session's share of, for a model the bridge does not know |
 | `--quiet` | Print no updates, only the bridge's and the deck's own lines |
@@ -187,7 +192,7 @@ The tests replay recorded Claude Code sessions (`fixtures/`) into the updates th
 no Claude Code. To record one, start the bridge with `--record FILE`; `scrub.py` cleans a recording of ids, paths
 and text before it goes in `fixtures/`, and `replay.py` turns it into the expected updates. The design and the
 reasons behind it are in [DESIGN.md](DESIGN.md); the deck's side, the records and the link on the cable, in the
-firmware repo's [docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-timer/blob/main/docs/ONX2424G013_AGENT_DECK.md)
+firmware repo's [docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md)
 §6 and §16.
 
 To try the plugin from a working copy, point Claude Code at the folder: `claude --plugin-dir .` — a bridge started

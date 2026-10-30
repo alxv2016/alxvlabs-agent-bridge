@@ -15,11 +15,13 @@ Pure and deterministic: the clock is passed in, so a recording replays into the 
     {"type": "remove", "id"}
     {"type": "usage", "five_hour_pct", "five_hour_resets_min", "seven_day_pct", "seven_day_resets_min"}
     {"type": "request", "id", "agent", "tool", "body", "cut"}
+    {"type": "question", "id", "agent", "part", "tool", "question", "options", "multi"}
     {"type": "close", "id", "reason"}
 
 with the field names and limits of `onx::ui::deck` (onx/deck.h); `state` is "working", "needs_you" or "done",
 `reason` "answered_elsewhere" or "timed_out". An agent record is sent only when something but `since_s`
-changed: the device counts `since_s` up itself from the record's arrival.
+changed: the device counts `since_s` up itself from the record's arrival. A question goes out only while
+`asks_questions` says the deck takes them, one part of its AskUserQuestion at a time, under one id (DESIGN.md §4).
 """
 
 from __future__ import annotations
@@ -32,6 +34,9 @@ NAME_CHARS = 40
 DETAIL_CHARS = 64
 TOOL_CHARS = 48
 BODY_BYTES = 2048
+QUESTION_CHARS = 240
+OPTION_CHARS = 96
+MAX_OPTIONS = 4
 MAX_ID = 0xFFFF  # Agent::id is a uint16_t, non-zero
 
 WORKING, NEEDS_YOU, DONE = "working", "needs_you", "done"
@@ -40,8 +45,8 @@ WORKING, NEEDS_YOU, DONE = "working", "needs_you", "done"
 NEEDS_YOU_NOTICES = {"permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"}
 
 # Tools whose permission request the deck cannot answer: allowing AskUserQuestion only lets the question be asked,
-# and its answer is the option the developer picks, in the terminal (DESIGN.md §3). The agent waits on
-# the developer, with no request on the deck.
+# and its answer is the option the developer picks (DESIGN.md §3). The deck gets the question at its PreToolUse, where
+# an answer can be given (§4); a PermissionRequest after that means the terminal is asking.
 TERMINAL_ONLY = {"AskUserQuestion"}
 
 # A session's page before Claude Code has titled it.
@@ -137,6 +142,43 @@ def request_body(tool: str, tool_input: dict) -> str:
     return to_glass(text, multiline=True)
 
 
+def question_parts(tool_input: dict) -> list | None:
+    """AskUserQuestion's questions when the deck can ask them all, else None: then the terminal asks."""
+    questions = tool_input.get("questions") if isinstance(tool_input, dict) else None
+    if not isinstance(questions, list) or not questions:
+        return None
+    for q in questions:
+        options = q.get("options") if isinstance(q, dict) else None
+        if not isinstance(options, list) or not 1 <= len(options) <= MAX_OPTIONS:
+            return None
+        if not all(isinstance(o, dict) and o.get("label") for o in options):
+            return None
+    return questions
+
+
+def question_record(rid: int, agent: int, questions: list, part: int) -> dict:
+    """Part `part` of a call, on the glass: the header as its tool line, each option a card."""
+    q = questions[part]
+    tool = to_glass(q.get("header") or "Question")
+    if len(questions) > 1:
+        tool = f"{tool} {part + 1}/{len(questions)}"
+
+    def card(o: dict) -> str:
+        text = f"{o['label']}: {o['description']}" if o.get("description") else str(o["label"])
+        return fit(to_glass(text), OPTION_CHARS)
+
+    return {"type": "question", "id": rid, "agent": agent, "part": part, "tool": fit(tool, TOOL_CHARS),
+            "question": fit(to_glass(q.get("question", "")), QUESTION_CHARS),
+            "options": [card(o) for o in q["options"]], "multi": bool(q.get("multiSelect"))}
+
+
+class Ask:
+    """A call to AskUserQuestion on the deck: its questions as Claude Code sent them, and the answers so far."""
+
+    def __init__(self, questions: list):
+        self.questions, self.part, self.answers = questions, 0, {}
+
+
 class Agent:
     def __init__(self, aid: int, parent: int, name: str, now: float):
         self.id, self.parent, self.name = aid, parent, name
@@ -170,6 +212,10 @@ class Deck:
         self.agents: dict[str, Agent] = {}   # session_id, or session_id/agent_id for a sub-agent
         self.requests: dict[int, tuple[str, str]] = {}  # request id -> (agent key, tool)
         self.request_records: dict[int, dict] = {}       # request id -> its record, for a snapshot
+        self.asks: dict[int, Ask] = {}                   # request id -> the question it is
+        self.tool_uses: dict[tuple[str, str], str] = {}  # (agent key, tool) -> the id of its latest PreToolUse
+        self.request_uses: dict[int, str] = {}           # request id -> the tool call it holds
+        self.asks_questions = False  # The attached deck takes "question" records: its hello's version says (§4)
         self.next_agent, self.next_request = 1, 1
         self.rate_limits: dict = {}
         self.rate_limits_at = 0.0  # When they were measured: the newer of a status line and the usage cache wins
@@ -229,9 +275,36 @@ class Deck:
         if tool is not None:
             ids = ids[:1]
         for rid in ids:
-            del self.requests[rid]
-            self.request_records.pop(rid, None)
+            self._forget(rid)
         return [{"type": "close", "id": rid, "reason": reason} for rid in ids]
+
+    def _forget(self, rid: int) -> tuple | None:
+        """Request `rid` gone from every table; what the requests table held, or None."""
+        self.request_records.pop(rid, None)
+        self.asks.pop(rid, None)
+        self.request_uses.pop(rid, None)
+        return self.requests.pop(rid, None)
+
+    def _hold_use(self, rid: int, key: str, tool: str) -> None:
+        use = self.tool_uses.get((key, tool))
+        if use:
+            self.request_uses[rid] = use
+
+    def _ended_elsewhere(self, rids: list[int], now: float) -> list[dict]:
+        """Requests `rids` settled with no hook to say so: closed, and their agents work on."""
+        out = []
+        for rid in rids:
+            key, _ = self._forget(rid) or (None, None)
+            if key is None:
+                continue
+            out.append({"type": "close", "id": rid, "reason": "answered_elsewhere"})
+            if key in self.agents and not any(k == key for k, _ in self.requests.values()):
+                self.agents[key].set_state(WORKING, now)
+        return out
+
+    def hook_gone(self, rid: int, now: float) -> list[dict]:
+        """Claude Code stopped waiting on request `rid`'s hook: something else answered it."""
+        return self._ended_elsewhere([rid], now) + self._changed(now)
 
     def _usage(self, now: float) -> list[dict]:
         def window(name):
@@ -266,7 +339,7 @@ class Deck:
         elif kind == "subagent-status":
             out = self._subagent_status(data, now)
         elif kind == "transcript":
-            out = self._transcript(data)
+            out = self._transcript(data, now)
         elif kind == "usage-cache":
             out = self._usage_cache(data)
         else:
@@ -286,18 +359,38 @@ class Deck:
 
     def answered(self, rid: int, now: float) -> list[dict]:
         """The device answered request `rid` and closed it itself: its agent works on."""
-        self.request_records.pop(rid, None)
-        key, _ = self.requests.pop(rid, (None, None))
+        key, _ = self._forget(rid) or (None, None)
         if key is None:
             return []
         if key in self.agents and not any(k == key for k, _ in self.requests.values()):
             self.agents[key].set_state(WORKING, now)
         return self._changed(now)
 
+    def answered_question(self, rid: int, part: int, chosen: int, now: float) -> tuple[list[dict], bool, dict | None]:
+        """The device's answer to part `part` of question `rid`: bit n for option n, 0 to leave it to the terminal.
+        Gives the records it makes, whether the call is settled, and the answers Claude Code gets, keyed by question
+        as AskUserQuestion takes them; settled with none, the terminal asks. A resend of an old part changes nothing."""
+        ask = self.asks.get(rid)
+        if ask is None or part != ask.part:
+            return [], False, None
+        q = ask.questions[part]
+        labels = [str(o["label"]) for i, o in enumerate(q["options"]) if chosen >> i & 1]
+        if not labels:
+            self._forget(rid)
+            return [], True, None
+        ask.answers[q.get("question", "")] = ", ".join(labels)
+        ask.part += 1
+        if ask.part < len(ask.questions):
+            key, _ = self.requests[rid]
+            record = question_record(rid, self.agents[key].id, ask.questions, ask.part)
+            self.request_records[rid] = record
+            return [record], False, None
+        answers = ask.answers
+        return self.answered(rid, now), True, answers
+
     def expire(self, rid: int, now: float) -> list[dict]:
         """Request `rid` held past the bridge's hold: the device closes it, and Claude Code asks in the terminal."""
-        self.request_records.pop(rid, None)
-        if self.requests.pop(rid, None) is None:
+        if self._forget(rid) is None:
             return []
         return [{"type": "close", "id": rid, "reason": "timed_out"}]
 
@@ -351,9 +444,24 @@ class Deck:
             out += self._close_for(key)
             a.set_state(WORKING, now)
             a.detail = tool_summary(h.get("tool_name", ""), h.get("tool_input", {}))
-        elif event in ("PostToolUse", "PermissionDenied"):
+            if h.get("tool_use_id"):
+                self.tool_uses[(key, h.get("tool_name", ""))] = str(h["tool_use_id"])
+            questions = question_parts(h.get("tool_input", {})) if h.get("tool_name") in TERMINAL_ONLY else None
+            if questions and self.asks_questions:
+                rid = self.next_request
+                self.next_request = self.next_request % 0xFFFFFFFF + 1
+                self.requests[rid] = (key, h["tool_name"])
+                self._hold_use(rid, key, h["tool_name"])
+                self.asks[rid] = Ask(questions)
+                a.set_state(NEEDS_YOU, now)
+                out += self._changed(now)  # The page shows Needs you before its question opens
+                record = question_record(rid, a.id, questions, 0)
+                self.request_records[rid] = record
+                out.append(record)
+        elif event in ("PostToolUse", "PostToolUseFailure", "PermissionDenied"):
             # The tool ran or was refused: a request it made was answered somewhere else. A sub-agent's
             # request is seen to carry agent_id (§15) though not documented to; looking on its session hedges.
+            self.tool_uses.pop((key, h.get("tool_name", "")), None)
             closed = self._close_for(key, tool=h.get("tool_name"))
             if not closed and key != sid:
                 closed = self._close_for(sid, tool=h.get("tool_name"))
@@ -371,6 +479,7 @@ class Deck:
             rid = self.next_request
             self.next_request = self.next_request % 0xFFFFFFFF + 1
             self.requests[rid] = (key, tool)
+            self._hold_use(rid, key, tool)
             a.set_state(NEEDS_YOU, now)
             a.detail = tool_summary(tool, h.get("tool_input", {}))
             out += self._changed(now)  # The page shows Needs you before its request opens
@@ -413,11 +522,14 @@ class Deck:
         """Its `tokenCount` is a sub-agent's context, not what it wrote: the transcript gives the deck that."""
         return []
 
-    def _transcript(self, t: dict) -> list[dict]:
+    def _transcript(self, t: dict, now: float) -> list[dict]:
         sid, agent = t.get("session_id", ""), t.get("agent_id", "")
         a = self.agents.get(f"{sid}/{agent}" if agent else sid)
         if a is None:
             return []
+        if t.get("tool_results"):
+            ended = set(t["tool_results"])
+            return self._ended_elsewhere([r for r, use in self.request_uses.items() if use in ended], now)
         if t.get("description") and agent:
             a.name = fit(to_glass(t["description"]), NAME_CHARS)  # As Claude Code's agent map titles it
         if t.get("title") and not agent:
