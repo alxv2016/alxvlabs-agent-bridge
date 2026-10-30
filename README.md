@@ -10,7 +10,8 @@ Python itself. The firmware for the deck is [alxv2016/nextion-timer](https://git
 
 ## What you need
 
-- A Mac with Python 3.9 or later. The `python3` that comes with macOS works; so does Homebrew's.
+- A Mac with Python 3.9 or later. The `python3` that comes with macOS works; so does Homebrew's. Linux should
+  work too but is untested. Windows is not supported yet: there the plugin does nothing, so it does no harm.
 - Claude Code, in the terminal or the VS Code extension.
 - The agent deck, plugged into the Mac with a USB-C cable. It runs from the cable; there is no battery.
 

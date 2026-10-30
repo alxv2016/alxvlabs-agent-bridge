@@ -171,7 +171,8 @@ same `hook.py` and `bridge.py`.
 ## 7. Windows
 
 Claude Code and the deck both work on Windows — the deck appears as a COM port through Windows' own USB serial
-driver — but the bridge does not yet.
+driver — but the bridge does not yet. Until it does, the plugin's hooks never start the bridge on Windows
+(`hook.py`'s `can_start()`): a bridge that fails as it starts would make every hook wait its 2 s for it.
 
 | Part | On Windows |
 | --- | --- |

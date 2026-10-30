@@ -80,6 +80,12 @@ def start_bridge() -> None:
                          start_new_session=True, close_fds=True)
 
 
+def can_start(platform: str = sys.platform) -> bool:
+    """Whether this machine can run the bridge: not Windows, whose serial port serial_link.py cannot open yet
+    (DESIGN.md §7). There every hook would wait START_WAIT_S for a bridge that fails as it starts."""
+    return not platform.startswith("win")
+
+
 def post_starting(kind: str, body: bytes, timeout: float) -> bytes | None:
     """post(), starting the bridge first when none answers, then giving this input to the new bridge."""
     answer = post(kind, body, timeout)
@@ -124,7 +130,7 @@ def main() -> int:
         return 0
     body = sys.stdin.buffer.read()
     timeout = REQUEST_TIMEOUT_S if kind == "hook" and b'"PermissionRequest"' in body else TIMEOUT_S[kind]
-    answer = (post_starting if plugin and kind == "hook" else post)(kind, body, timeout)
+    answer = (post_starting if plugin and kind == "hook" and can_start() else post)(kind, body, timeout)
     if kind == "hook" and answer:
         sys.stdout.buffer.write(answer)
     elif kind == "status":

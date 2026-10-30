@@ -436,6 +436,10 @@ class Plugin(unittest.TestCase):
             self.assertIn("uninstalled", watch.gone())
         self.assertIn("folder is gone", watch.gone())
 
+    def test_the_plugin_never_starts_a_bridge_on_windows(self):
+        self.assertTrue(hook.can_start("darwin") and hook.can_start("linux"))
+        self.assertFalse(hook.can_start("win32"))
+
     def test_the_plugins_hooks_stand_aside_for_install_pys(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "settings.json")

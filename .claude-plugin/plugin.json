@@ -1,6 +1,6 @@
 {
   "name": "alxvlabs-agent-deck",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The agent deck on your desk: Claude Code's plan usage, each session and sub-agent at work, and permission requests answered with a knob, sent over USB-C to the ONX2424G013 round display.",
   "author": {
     "name": "Alex Vong",
