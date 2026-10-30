@@ -25,6 +25,8 @@ import subprocess
 import sys
 import time
 
+import plugin_state
+
 PORT = int(os.environ.get("DECK_BRIDGE_PORT", "8737"))
 TIMEOUT_S = {"hook": 2.0, "status": 0.3, "subagent-status": 0.3}
 # A permission request or a question waits while the bridge holds it for the device: under its hook's timeout in
@@ -74,9 +76,11 @@ def start_bridge() -> None:
     path = log_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
+    # The installed version's, not this file's: a session opened before an update still runs the old hook.py.
+    folder = plugin_state.current_folder(PLUGIN, HERE)
     with open(path, "ab") as log:
-        subprocess.Popen([sys.executable, os.path.join(HERE, "bridge.py"), "--quiet", "--plugin", PLUGIN],
-                         cwd=HERE, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+        subprocess.Popen([sys.executable, os.path.join(folder, "bridge.py"), "--quiet", "--plugin", PLUGIN],
+                         cwd=folder, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,
                          start_new_session=True, close_fds=True)
 
 

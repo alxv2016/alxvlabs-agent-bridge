@@ -437,6 +437,62 @@ class Plugin(unittest.TestCase):
             self.assertIn("uninstalled", watch.gone())
         self.assertIn("folder is gone", watch.gone())
 
+    def install(self, tmp, *folders):
+        """The plugin listed at `folders`, the first the newest, and switched on."""
+        entries = [{"scope": "user", "installPath": f, "lastUpdated": f"2026-10-{30 - i}T00:00:00Z"}
+                   for i, f in enumerate(folders)]
+        return self.claude_dir(tmp, {self.KEY: entries}, {"enabledPlugins": {self.KEY: True}})
+
+    def test_an_update_replaces_the_bridge_though_the_old_folder_stays(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as old, \
+                tempfile.TemporaryDirectory() as new:
+            d = self.install(tmp, old)
+            watch = bridge.PluginWatch(hook.PLUGIN, old, d)
+            self.assertIsNone(watch.gone())
+            self.install(tmp, new)
+            self.assertTrue(os.path.isdir(old))
+            self.assertEqual(watch.gone(), bridge.UPDATED)
+
+    def test_a_bridge_started_from_a_left_behind_folder_goes_too(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as old, \
+                tempfile.TemporaryDirectory() as new:
+            d = self.install(tmp, new)
+            with open(os.path.join(old, bridge.ORPHAN_MARK), "w") as f:
+                f.write("1")
+            self.assertEqual(bridge.PluginWatch(hook.PLUGIN, old, d).gone(), bridge.UPDATED)
+
+    def test_a_plugin_dir_bridge_is_left_running_beside_an_install(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as mine, \
+                tempfile.TemporaryDirectory() as installed:
+            d = self.install(tmp, installed)
+            self.assertIsNone(bridge.PluginWatch(hook.PLUGIN, mine, d).gone())
+
+    def test_a_list_it_cannot_read_stops_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as old:
+            d = self.install(tmp, old)
+            watch = bridge.PluginWatch(hook.PLUGIN, old, d)
+            self.assertIsNone(watch.gone())
+            with open(os.path.join(d, "plugins", "installed_plugins.json"), "w") as f:
+                f.write("{ half written")
+            self.assertIsNone(watch.gone())
+
+    def test_a_held_request_keeps_an_updated_bridge_until_it_settles(self):
+        b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+        self.assertFalse(b.holding())
+        b.take("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}))
+        b.waiting[1] = [threading.Event(), None]
+        self.assertTrue(b.holding())
+
+    def test_a_hook_starts_the_installed_version(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as old, \
+                tempfile.TemporaryDirectory() as new, tempfile.TemporaryDirectory() as mine:
+            open(os.path.join(new, "bridge.py"), "w").close()
+            d = self.install(tmp, new, old)
+            self.assertEqual(plugin_state.current_folder(hook.PLUGIN, mine, d), os.path.realpath(new))
+            self.assertEqual(plugin_state.current_folder(hook.PLUGIN, old, d), os.path.realpath(old))  # still listed
+            self.install(tmp, os.path.join(tmp, "not-there"))
+            self.assertEqual(plugin_state.current_folder(hook.PLUGIN, old, d), os.path.realpath(old))
+
     def test_the_plugin_never_starts_a_bridge_on_windows(self):
         self.assertTrue(hook.can_start("darwin") and hook.can_start("linux"))
         self.assertFalse(hook.can_start("win32"))

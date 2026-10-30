@@ -36,7 +36,19 @@ sessions. Its log is `~/Library/Logs/agent-deck-bridge.log`.
 
 - **Turn it off** with `/plugin disable alxvlabs-agent-deck@alxvlabs`, or remove it with `/plugin uninstall
   alxvlabs-agent-deck@alxvlabs`: the bridge notices within about ten seconds and stops.
-- **Update** with `/plugin marketplace update alxvlabs`, then `/plugin update alxvlabs-agent-deck@alxvlabs`.
+- **Update** with `/plugin marketplace update alxvlabs`, then `/plugin update alxvlabs-agent-deck@alxvlabs`, and
+  restart your Claude Code sessions so they load the new hooks. From 0.2.1 on the running bridge notices the update
+  within about ten seconds, finishes any request it holds, and stops, and the next hook starts the new version.
+- **Updating from 0.2.0 or earlier** needs one manual step, as those versions keep running after an update. Stop the
+  old bridge in a terminal, and the next hook starts the new one:
+
+  ```sh
+  kill $(lsof -ti tcp:8737 -sTCP:LISTEN)
+  ```
+
+  A request open at that moment falls back to Claude Code's own prompt, and the deck reconnects by itself. Run
+  `lsof -a -p $(lsof -ti tcp:8737 -sTCP:LISTEN) -d cwd` to see which version's folder is running. If you set
+  `DECK_BRIDGE_PORT`, use that port instead of 8737.
 - The plugin sets no status line: Claude Code lets a plugin carry hooks but not a status line.
 
 ### Without the plugin

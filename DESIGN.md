@@ -167,8 +167,14 @@ same `hook.py` and `bridge.py`.
 - **Claude Code stops nothing the plugin started** `[R]` 2026-10-29: a probe plugin's `SessionStart` hook started one
   detached Python process, which ran on after `/exit`, after `claude plugin disable` and after `claude plugin
   uninstall`. So the bridge stops itself: every 10 s (`PLUGIN_CHECK_S`) it asks `plugin_state.py`, and goes once the
-  plugin it has seen installed is uninstalled or disabled, or its own folder is gone — an update installs a new
-  version's folder; the next hook then starts the new code.
+  plugin it has seen installed is uninstalled or disabled, or its own folder is gone.
+- **An update replaces a running bridge.** Claude Code keeps the old version's folder, marked `.orphaned_at`, beside
+  the new one `[R]` 2026-10-30, so a folder still there says nothing: the bridge goes once `installed_plugins.json`
+  no longer lists its folder, having listed it, or its folder carries the mark. It waits for any request it holds, so
+  no answer is cut off, and the next hook starts the new code. A hook starts the listed version's `bridge.py`, not
+  its own folder's, as a session opened before the update still runs the old `hook.py`. A folder never listed and
+  never marked is `claude --plugin-dir`'s, and stays. Versions before 0.2.1 do none of this, so leaving one takes a
+  manual `kill`, as the README says.
 - **Disabled means every install's settings say false.** An install's scope picks its settings file — `user`
   `~/.claude/settings.json`, `project` the project's `.claude/settings.json`, `local` its
   `.claude/settings.local.json` — and the plugin is off only when every install's file has

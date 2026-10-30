@@ -62,6 +62,8 @@ DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while t
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
 MAX_RELEASE_S = 600
 GONE_POLL_S = 0.25  # How often a held hook is looked at, to see whether Claude Code still waits on it
+ORPHAN_MARK = ".orphaned_at"  # Claude Code's mark on a version's folder an update has left behind
+UPDATED = "a newer version of the plugin is installed"
 PLUGIN_CHECK_S = 10  # How often a bridge the plugin started looks whether the plugin is still installed and on
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -83,6 +85,19 @@ class PluginWatch:
     def __init__(self, name: str, folder: str = HERE, claude_dir: str = plugin_state.CLAUDE_DIR):
         self.name, self.folder, self.claude_dir = name, folder, claude_dir
         self.seen = False
+        self.current = False  # This folder has been listed as an install
+
+    def replaced(self) -> bool:
+        """Whether an update has put another version in this one's place. Claude Code keeps the old folder, marked
+        `.orphaned_at`, so its being there says nothing (DESIGN.md §5). A folder never listed and never marked is
+        one Claude Code was pointed at, `claude --plugin-dir`, and is left running."""
+        paths = plugin_state.install_paths(self.name, self.claude_dir)
+        if not paths:
+            return False
+        if os.path.realpath(self.folder) in paths:
+            self.current = True
+            return False
+        return self.current or os.path.exists(os.path.join(self.folder, ORPHAN_MARK))
 
     def gone(self) -> str | None:
         """Why the bridge should stop, or None."""
@@ -99,6 +114,8 @@ class PluginWatch:
             return "the plugin was uninstalled"
         if not plugin_state.enabled(self.name, self.claude_dir):
             return "the plugin was disabled"
+        if self.replaced():
+            return UPDATED
         return None
 
 
@@ -243,6 +260,11 @@ class Bridge:
             waiter[1] = "allow" if allow else "deny"
             self.emit(self.deck.answered(rid, time.time()))
             waiter[0].set()
+
+    def holding(self) -> bool:
+        """Whether a hook is waiting on the deck's answer."""
+        with self.lock:
+            return bool(self.waiting)
 
     def drop(self, rid: int) -> None:
         """A question with no deck left to hold it for: closed, and left out of every snapshot."""
@@ -419,6 +441,8 @@ def main() -> int:
             if beat % int(PING_S) == 0:
                 bridge.ping()
             why = watch.gone() if watch and beat % PLUGIN_CHECK_S == 0 else None
+            if why == UPDATED and bridge.holding():
+                why = None  # Not out from under an answer: the next look finds the request settled
             if why:
                 print(f"bridge: {why}; stopping", file=sys.stderr)
                 server.shutdown()
