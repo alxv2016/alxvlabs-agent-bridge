@@ -1,6 +1,6 @@
 # Agent deck bridge
 
-The agent deck is a small round knob display that sits on your desk and shows what Claude Code is doing: your
+The [agent deck](https://github.com/alxv2016/nextion-agent-deck) is a small round knob display that sits on your desk and shows what Claude Code is doing: your
 plan's usage, each session and sub-agent at work, and permission requests you can answer with the knob. This
 bridge is the part that runs on your Mac. It takes what Claude Code reports and sends it to the deck over the
 USB-C cable, and it sends your answers back.
