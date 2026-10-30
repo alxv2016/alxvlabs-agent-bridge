@@ -1,0 +1,37 @@
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 8, "detail": "Agent: xxxx xxxx xxxxxxxx xxxxxx", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 8, "detail": "Agent: xxxx xxxx xxxxxxxx xxxxxx", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 8, "detail": "Agent: xxxx xxxx xxxxxxxx xxxxxx", "context_pct": 6, "tokens": 905}
+{"type": "agent", "id": 2, "parent": 1, "name": "Explore", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "Agent: xxxx xxxx xxxxxxxx xxxxxx", "context_pct": 6, "tokens": 905}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "Agent: xxxx xxxx xxxxxxxx xxxxxx", "context_pct": 6, "tokens": 177}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "working", "since_s": 3, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "working", "since_s": 3, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 246}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 246}
+{"type": "request", "id": 1, "agent": 2, "tool": "Bash", "body": "xxxx -xx xxxxx://xxxxxxx.xxx\n# xxxx x xxxx xxxxxxx xx xxxxxxx.xxx", "cut": false}
+{"type": "close", "id": 1, "reason": "answered_elsewhere"}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "working", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 246}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 246}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxxx xxxx xxxxxxxx xxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 380}
+{"type": "remove", "id": 2}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 6, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "", "context_pct": 6, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "", "context_pct": 7, "tokens": 383}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 7, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 4, "detail": "Agent: xxxx xxxx xxxx xxxxxx", "context_pct": 7, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 4, "detail": "Agent: xxxx xxxx xxxx xxxxxx", "context_pct": 7, "tokens": 489}
+{"type": "agent", "id": 3, "parent": 1, "name": "Explore", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxxx xxxx xxxx xxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "Agent: xxxx xxxx xxxx xxxxxx", "context_pct": 7, "tokens": 489}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "Agent: xxxx xxxx xxxx xxxxxx", "context_pct": 7, "tokens": 95}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxxx xxxx xxxx xxxxxx", "state": "working", "since_s": 1, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 0}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxxx xxxx xxxx xxxxxx", "state": "working", "since_s": 1, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 87}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxxx xxxx xxxx xxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 87}
+{"type": "request", "id": 2, "agent": 3, "tool": "Bash", "body": "xxxx -xx xxxxx://xxxxxxx.xxx\n# xxxx xxxx xxxxxxx xx xxxxxxx.xxx", "cut": false}
+{"type": "close", "id": 2, "reason": "answered_elsewhere"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 7, "tokens": 0}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxxx xxxx xxxx xxxxxx", "state": "working", "since_s": 0, "detail": "Bash: xxxx -xx xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 87}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "", "context_pct": 7, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxx xxxxx xxxxxxxx xxxx", "state": "done", "since_s": 0, "detail": "", "context_pct": 7, "tokens": 173}

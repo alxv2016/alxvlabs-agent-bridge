@@ -1,0 +1,15 @@
+{
+  "name": "alxvlabs",
+  "owner": {
+    "name": "Alex Vong",
+    "url": "https://github.com/alxv2016"
+  },
+  "description": "alxvlabs' Claude Code plugins: the agent deck's bridge.",
+  "plugins": [
+    {
+      "name": "alxvlabs-agent-deck",
+      "source": "./",
+      "description": "The agent deck on your desk: Claude Code's plan usage, each session and sub-agent at work, and permission requests answered with a knob, sent over USB-C to the ONX2424G013 round display."
+    }
+  ]
+}

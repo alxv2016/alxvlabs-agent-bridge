@@ -1,0 +1,18 @@
+{
+  "name": "alxvlabs-agent-deck",
+  "version": "0.1.0",
+  "description": "The agent deck on your desk: Claude Code's plan usage, each session and sub-agent at work, and permission requests answered with a knob, sent over USB-C to the ONX2424G013 round display.",
+  "author": {
+    "name": "Alex Vong",
+    "url": "https://github.com/alxv2016"
+  },
+  "homepage": "https://github.com/alxv2016/alxvlabs-agent-bridge",
+  "repository": "https://github.com/alxv2016/alxvlabs-agent-bridge",
+  "keywords": [
+    "hardware",
+    "esp32",
+    "permissions",
+    "usage",
+    "status"
+  ]
+}
