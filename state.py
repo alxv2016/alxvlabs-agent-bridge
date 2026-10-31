@@ -6,22 +6,24 @@
     records = deck.feed("subagent-status", input, now)
     records = deck.feed("transcript", input, now)          # what transcripts.py read for a hook
     records = deck.feed("usage-cache", input, now)         # what usage_cache.py read from Claude Code's state
-    records = deck.tick(now)                               # once a second: usage's reset minutes
+    records = deck.tick(now)                               # once a second: usage's reset minutes, stale previous chats
 
 Pure and deterministic: the clock is passed in, so a recording replays into the same records
 (DESIGN.md §3; the records are the firmware's AGENT_DECK §6). A record is a dict, one of:
 
-    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"}
+    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"[, "active"]}
     {"type": "remove", "id"}
     {"type": "usage", "five_hour_pct", "five_hour_resets_min", "seven_day_pct", "seven_day_resets_min"}
     {"type": "request", "id", "agent", "tool", "body", "cut"}
     {"type": "question", "id", "agent", "part", "tool", "question", "options", "multi"}
     {"type": "close", "id", "reason"}
 
-with the field names and limits of `onx::ui::deck` (onx/deck.h); `state` is "working", "needs_you" or "done",
-`reason` "answered_elsewhere" or "timed_out". An agent record is sent only when something but `since_s`
-changed: the device counts `since_s` up itself from the record's arrival. A question goes out only while
-`asks_questions` says the deck takes them, one part of its AskUserQuestion at a time, under one id (DESIGN.md §4).
+with the field names and limits of `onx::ui::deck` (onx/deck.h); `state` is "working", "needs_you", "done" or "idle",
+`active` false for an agent of a previous chat and absent otherwise (DESIGN.md §3), `reason` "answered_elsewhere" or
+"timed_out". An agent record is sent only when something but `since_s` changed: the device counts `since_s` up itself
+from the record's arrival. "idle" and `active` go out only while `shows_idle` says the deck takes them; it gets "done"
+in their place. A question goes out only while `asks_questions` says the deck takes them, one part of its
+AskUserQuestion at a time, under one id (DESIGN.md §4).
 """
 
 from __future__ import annotations
@@ -41,7 +43,11 @@ OPTION_CHARS = 96
 MAX_OPTIONS = 4
 MAX_ID = 0xFFFF  # Agent::id is a uint16_t, non-zero
 
-WORKING, NEEDS_YOU, DONE = "working", "needs_you", "done"
+WORKING, NEEDS_YOU, DONE, IDLE = "working", "needs_you", "done", "idle"
+
+# How long a previous chat may say it works with no hook. An interrupt sends no `Stop` (§3), and a previous chat has no
+# next prompt to clear it: it would read `working` for good, and the deck could never make room for another.
+STALE_S = 600
 
 # Notification types that mean a session waits on the developer (DESIGN.md §3).
 NEEDS_YOU_NOTICES = {"permission_prompt", "elicitation_dialog", "elicitation_url_dialog", "agent_needs_input"}
@@ -186,9 +192,11 @@ class Agent:
         self.id, self.parent, self.name = aid, parent, name
         self.kind = ""  # A sub-agent's agent_type, kept when a description names its page
         self.state, self.since = DONE, now
+        self.heard = now  # Its last hook
         self.detail, self.context_pct, self.tokens = "", -1, 0
         self.model, self.effort = "", ""  # As Claude Code names them: `Opus 5.5`, `high`
         self.has_status = False  # A status line has given its context: the transcript's is not needed
+        self.active = True  # Of the chat last prompted, or none has been; a previous chat's otherwise
         self.sent = None  # the last record sent, less since_s
 
     def set_state(self, state: str, now: float):
@@ -196,10 +204,13 @@ class Agent:
             self.state, self.since = state, now
 
     def record(self, now: float) -> dict:
-        return {"type": "agent", "id": self.id, "parent": self.parent, "name": self.name, "state": self.state,
-                "since_s": max(0, int(now - self.since)), "detail": self.detail,
-                "context_pct": self.context_pct, "tokens": self.tokens,
-                "model": fit(to_glass(" • ".join(x for x in (self.model, self.effort) if x)), MODEL_CHARS)}
+        r = {"type": "agent", "id": self.id, "parent": self.parent, "name": self.name, "state": self.state,
+             "since_s": max(0, int(now - self.since)), "detail": self.detail,
+             "context_pct": self.context_pct, "tokens": self.tokens,
+             "model": fit(to_glass(" • ".join(x for x in (self.model, self.effort) if x)), MODEL_CHARS)}
+        if not self.active:
+            r["active"] = False
+        return r
 
 
 def model_name(model_id: str) -> str:
@@ -230,12 +241,15 @@ class Deck:
         self.windows: dict[str, int] = {}
         self.context_window = context_window
         self.agents: dict[str, Agent] = {}   # session_id, or session_id/agent_id for a sub-agent
+        self.active_sid: str | None = None   # The session last prompted, the closest there is to the chat on view
         self.requests: dict[int, tuple[str, str]] = {}  # request id -> (agent key, tool)
         self.request_records: dict[int, dict] = {}       # request id -> its record, for a snapshot
         self.asks: dict[int, Ask] = {}                   # request id -> the question it is
         self.tool_uses: dict[tuple[str, str], str] = {}  # (agent key, tool) -> the id of its latest PreToolUse
         self.request_uses: dict[int, str] = {}           # request id -> the tool call it holds
         self.asks_questions = False  # The attached deck takes "question" records: its hello's version says (§4)
+        self.shows_idle = True  # The attached deck takes "idle" and `active`: its hello's version says, and an old
+                                # deck would read "idle" as `Working`, and never make room for another agent (§3)
         self.next_agent, self.next_request = 1, 1
         self.rate_limits: dict = {}
         self.rate_limits_at = 0.0  # When they were measured: the newer of a status line and the usage cache wins
@@ -250,10 +264,16 @@ class Deck:
         aid, self.next_agent = self.next_agent, self.next_agent % MAX_ID + 1
         return aid
 
+    def _is_active(self, sid: str) -> bool:
+        return self.active_sid is None or self.active_sid == sid
+
     def _session(self, sid: str, cwd: str, now: float) -> Agent:
         if sid not in self.agents:
             # Named as Claude Code titles the session once a hook, the status line or the transcript says.
-            self.agents[sid] = Agent(self._new_id(), 0, SESSION_NAME, now)
+            a = Agent(self._new_id(), 0, SESSION_NAME, now)
+            if not self._is_active(sid):
+                a.active, a.state = False, IDLE
+            self.agents[sid] = a
         return self.agents[sid]
 
     def _subagent(self, sid: str, agent_id: str, agent_type: str, cwd: str, now: float) -> Agent:
@@ -262,9 +282,28 @@ class Deck:
         if key not in self.agents:
             a = Agent(self._new_id(), session.id, fit(to_glass(agent_type or "agent"), NAME_CHARS), now)
             a.kind = agent_type
+            a.active = session.active
             a.set_state(WORKING, now)
             self.agents[key] = a
         return self.agents[key]
+
+    def _take_over(self, sid: str, now: float) -> list[dict]:
+        """Session `sid` was prompted: it is the active chat, the rest previous ones, grey on the deck — the developer's
+        choice, 2026-10-30. A chat with nothing left to do is idle, not done, and its finished sub-agents go; what still
+        runs keeps its state and page, and a request it makes opens on the deck all the same (DESIGN.md §3)."""
+        out: list[dict] = []
+        if sid == self.active_sid:
+            return out
+        self.active_sid = sid
+        for k, a in list(self.agents.items()):
+            a.active = k == sid or k.startswith(sid + "/")
+            if a.active or a.state != DONE:
+                continue
+            if "/" in k:
+                out.append({"type": "remove", "id": self.agents.pop(k).id})
+            else:
+                a.set_state(IDLE, now)
+        return out
 
     def _actor(self, h: dict, now: float) -> tuple[str, Agent | None]:
         """The agent a hook speaks for: the sub-agent it fired in, or its session. None for an agent Claude Code
@@ -279,10 +318,17 @@ class Deck:
 
     # Records -------------------------------------------------------------------------------------------------
 
+    def _for_deck(self, a: Agent, now: float) -> dict:
+        r = a.record(now)
+        if not self.shows_idle:
+            r.pop("active", None)
+            r["state"] = DONE if r["state"] == IDLE else r["state"]
+        return r
+
     def _changed(self, now: float) -> list[dict]:
         out = []
         for a in sorted(self.agents.values(), key=lambda a: a.id):
-            r = a.record(now)
+            r = self._for_deck(a, now)
             key = {k: v for k, v in r.items() if k != "since_s"}
             if key != a.sent:
                 a.sent = key
@@ -320,6 +366,7 @@ class Deck:
             out.append({"type": "close", "id": rid, "reason": "answered_elsewhere"})
             if key in self.agents and not any(k == key for k, _ in self.requests.values()):
                 self.agents[key].set_state(WORKING, now)
+                self.agents[key].heard = now
         return out
 
     def hook_gone(self, rid: int, now: float) -> list[dict]:
@@ -367,12 +414,29 @@ class Deck:
         return out + self._changed(now) + self._usage(now)
 
     def tick(self, now: float) -> list[dict]:
-        return self._usage(now)
+        return self._stale(now) + self._usage(now)
+
+    def _stale(self, now: float) -> list[dict]:
+        """A previous chat that says it works and has gone quiet: idle, or gone for a sub-agent, as a `Stop` would."""
+        out: list[dict] = []
+        swept = False
+        held = {k for k, _ in self.requests.values()}
+        for k, a in list(self.agents.items()):
+            if a.active or a.state != WORKING or now - a.heard < STALE_S or k in held:
+                continue
+            swept = True
+            if "/" in k:
+                out.append({"type": "remove", "id": self.agents.pop(k).id})
+            else:
+                a.set_state(IDLE, now)
+                if a.detail == "Thinking":
+                    a.detail = ""
+        return out + self._changed(now) if swept else out
 
     def snapshot(self, now: float) -> list[dict]:
         """Everything the device should show, after a reset: for a deck that has just started or come back."""
         agents = sorted(self.agents.values(), key=lambda a: (a.parent != 0, a.id))
-        out = [{"type": "reset"}] + [a.record(now) for a in agents]
+        out = [{"type": "reset"}] + [self._for_deck(a, now) for a in agents]
         if self.usage_sent is not None:
             out.append(self.usage_sent)
         return out + [self.request_records[rid] for rid in sorted(self.request_records)]
@@ -384,6 +448,7 @@ class Deck:
             return []
         if key in self.agents and not any(k == key for k, _ in self.requests.values()):
             self.agents[key].set_state(WORKING, now)
+            self.agents[key].heard = now
         return self._changed(now)
 
     def answered_question(self, rid: int, part: int, chosen: int, now: float) -> tuple[list[dict], bool, dict | None]:
@@ -428,16 +493,20 @@ class Deck:
             # Sub-agents first, so the device never holds an orphan it did not need to.
             for k in sorted(gone, key=lambda k: k == sid):
                 out.append({"type": "remove", "id": self.agents.pop(k).id})
+            if sid == self.active_sid:
+                self.active_sid = None  # The next chat prompted, or opened, is orange
             return out
 
         if event == "SubagentStart":
             a = self._subagent(sid, h.get("agent_id", ""), h.get("agent_type", ""), h.get("cwd", ""), now)
             a.set_state(WORKING, now)
+            a.heard = now
             return out
 
         key, a = self._actor(h, now)
         if a is None:
             return out
+        a.heard = self.agents[sid].heard = now  # A sub-agent's hook says its session is alive too
         effort = h.get("effort")
         if isinstance(effort, dict) and effort.get("level"):
             a.effort = str(effort["level"])  # On a hook's input since Claude Code documents it there
@@ -458,6 +527,7 @@ class Deck:
             a.set_state(WORKING, now)
             a.detail = "Thinking"
             if key == sid:
+                out += self._take_over(sid, now)
                 # The session's sub-agents that finished go with the turn they worked in — the developer's choice,
                 # 2026-10-29; one still running, in the background or after a deny, stays.
                 for k in [k for k, x in self.agents.items() if k.startswith(sid + "/") and x.state == DONE]:
@@ -517,7 +587,10 @@ class Deck:
                 a.set_state(NEEDS_YOU, now)
         elif event in ("Stop", "SubagentStop"):
             out += self._close_for(key)
-            a.set_state(DONE, now)
+            if not a.active and key != sid:
+                out.append({"type": "remove", "id": self.agents.pop(key).id})  # A previous chat's: nothing to come back to
+                return out
+            a.set_state(DONE if a.active else IDLE, now)
             if a.detail == "Thinking":
                 a.detail = ""  # A turn with no tool call leaves nothing it did
         return out

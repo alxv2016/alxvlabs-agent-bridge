@@ -55,6 +55,7 @@ KINDS = {"/hook": "hook", "/status": "status", "/subagent-status": "subagent-sta
 MAX_INPUT = 1 << 20
 DENY_MESSAGE = "Denied on the agent deck."  # What Claude is told; the turn carries on
 QUESTIONS_VERSION = 2  # The deck's hello from which it takes "question" records
+IDLE_VERSION = 3       # And the state "idle" and `active`
 PING_S = 2.0          # onx/deck_link.h kPingMs: the deck takes the bridge for gone after three missed
 DEFAULT_HOLD_S = 570  # Under hook.py's 590 s wait on a request
 DEFAULT_QUESTION_HOLD_S = 120  # The terminal shows nothing while a question is held, so it waits less (DESIGN.md §4)
@@ -159,7 +160,9 @@ class Bridge:
     def on_record(self, r: dict) -> None:
         if r.get("type") == "hello":
             with self.lock:
-                self.deck.asks_questions = isinstance(r.get("version"), int) and r["version"] >= QUESTIONS_VERSION
+                version = r["version"] if isinstance(r.get("version"), int) else 0
+                self.deck.asks_questions = version >= QUESTIONS_VERSION
+                self.deck.shows_idle = version >= IDLE_VERSION
             self.send_snapshot()  # The deck started, came back, or was asked: everything, after a reset
         elif r.get("type") == "decision" and isinstance(r.get("id"), int):
             self.decide(r["id"], bool(r.get("allow")))

@@ -28,7 +28,7 @@ import hook  # noqa: E402
 import install  # noqa: E402
 import plugin_state  # noqa: E402
 from replay import load, replay  # noqa: E402
-from state import BODY_BYTES, Deck, cut_body, model_name, to_glass  # noqa: E402
+from state import BODY_BYTES, STALE_S, Deck, cut_body, model_name, to_glass  # noqa: E402
 from transcripts import Transcripts  # noqa: E402
 from usage_cache import UsageCache  # noqa: E402
 from usage_refresh import UsageRefresh  # noqa: E402
@@ -133,6 +133,137 @@ class Rules(unittest.TestCase):
         out = d.feed("hook", h("UserPromptSubmit"), 2)
         self.assertIn({"type": "remove", "id": 2}, out)
         self.assertEqual(sorted(d.agents), ["s1", "s1/a2"])  # the one still running stays
+
+    def test_a_deck_too_old_for_idle_gets_done_and_no_active(self):
+        d = Deck()
+        d.shows_idle = False
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("Stop", sid="a"), 1)
+        out = d.feed("hook", h("UserPromptSubmit", sid="b"), 2)
+        previous = [r for r in out if r["type"] == "agent" and r["id"] == d.agents["a"].id]
+        self.assertEqual(previous, [])  # nothing it can show has changed
+        records = [r for r in d.snapshot(3) if r["type"] == "agent"]
+        self.assertEqual({r["state"] for r in records}, {"done", "working"})
+        self.assertFalse(any("active" in r for r in records))
+
+    def test_a_previous_chat_interrupted_goes_idle_when_it_stays_quiet(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="s", agent_type="Plan"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        self.assertEqual(d.tick(STALE_S - 1), [])
+        sub = d.agents["a/s"].id
+        out = d.tick(STALE_S)
+        self.assertIn({"type": "remove", "id": sub}, out)
+        self.assertEqual(d.agents["a"].state, "idle")
+        self.assertEqual(d.agents["b"].state, "working")  # the active chat is never swept
+
+    def test_a_previous_chats_open_request_keeps_it_from_the_sweep(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        d.feed("hook", h("PermissionRequest", sid="a", tool_name="Bash", tool_input={"command": "ls"}), 2)
+        d.agents["a"].state = "working"
+        d.tick(STALE_S + 3)
+        self.assertEqual(d.agents["a"].state, "working")
+
+    def test_a_sub_agents_hooks_keep_its_session_from_the_sweep(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="s", agent_type="Plan"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        d.feed("hook", h("PreToolUse", sid="a", agent_id="s", agent_type="Plan", tool_name="Read", tool_input={}), STALE_S)
+        d.tick(STALE_S + 1)
+        self.assertEqual(d.agents["a"].state, "working")
+
+    def test_an_allow_late_in_its_hold_keeps_the_agent_from_the_sweep(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        d.feed("hook", h("PermissionRequest", sid="a", tool_name="Bash", tool_input={"command": "ls"}), 2)
+        d.answered(next(iter(d.requests)), STALE_S + 2)
+        d.tick(STALE_S + 3)
+        self.assertEqual(d.agents["a"].state, "working")
+
+    def test_a_sweep_clears_thinking_and_a_grey_chats_new_sub_agent_is_grey(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        d.feed("hook", h("SessionEnd", sid="b", reason="other"), 2)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="s", agent_type="Plan"), 2)
+        self.assertFalse(d.agents["a/s"].active)
+        d.feed("hook", h("SubagentStop", sid="a", agent_id="s", agent_type="Plan"), 3)
+        d.tick(STALE_S + 4)
+        self.assertEqual((d.agents["a"].state, d.agents["a"].detail), ("idle", ""))
+
+    def test_the_active_chat_ending_leaves_the_next_one_orange(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        d.feed("hook", h("SessionEnd", sid="b", reason="other"), 2)
+        d.feed("hook", h("SessionStart", sid="c"), 3)
+        self.assertTrue(d.agents["c"].active)
+        self.assertFalse(d.agents["a"].active)  # a previous chat stays one until it is prompted
+
+    def test_a_prompt_makes_its_chat_the_active_one_and_a_done_one_idle(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("Stop", sid="a"), 1)
+        self.assertNotIn("active", d.agents["a"].record(1))  # the chat in use says nothing, as an older record
+        out = d.feed("hook", h("UserPromptSubmit", sid="b"), 2)
+        previous = [r for r in out if r["type"] == "agent" and r["id"] == d.agents["a"].id]
+        self.assertEqual([(r["state"], r["active"]) for r in previous], [("idle", False)])
+        self.assertEqual(d.agents["b"].state, "working")
+        self.assertNotIn("active", d.agents["b"].record(2))
+
+    def test_a_previous_chat_prompted_takes_over_again(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("Stop", sid="a"), 1)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 2)
+        d.feed("hook", h("Stop", sid="b"), 3)
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 4)
+        self.assertEqual((d.agents["a"].state, d.agents["a"].active), ("working", True))
+        self.assertEqual((d.agents["b"].state, d.agents["b"].active), ("idle", False))
+
+    def test_a_previous_chat_still_at_work_keeps_its_state_and_ends_idle(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        self.assertEqual((d.agents["a"].state, d.agents["a"].active), ("working", False))
+        out = d.feed("hook", h("Stop", sid="a"), 2)
+        self.assertEqual([r["state"] for r in out if r["type"] == "agent"], ["idle"])
+
+    def test_a_chat_taken_over_loses_its_finished_sub_agents_and_greys_the_rest(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="done", agent_type="Explore"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="busy", agent_type="Plan"), 0)
+        d.feed("hook", h("SubagentStop", sid="a", agent_id="done", agent_type="Explore"), 1)
+        gone = d.agents["a/done"].id
+        out = d.feed("hook", h("UserPromptSubmit", sid="b"), 2)
+        self.assertIn({"type": "remove", "id": gone}, out)
+        self.assertEqual((d.agents["a/busy"].state, d.agents["a/busy"].active), ("working", False))
+
+    def test_a_previous_chats_sub_agent_leaves_as_it_finishes(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="busy", agent_type="Plan"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        gone = d.agents["a/busy"].id
+        out = d.feed("hook", h("SubagentStop", sid="a", agent_id="busy", agent_type="Plan"), 2)
+        self.assertIn({"type": "remove", "id": gone}, out)
+        self.assertNotIn("a/busy", d.agents)
+
+    def test_a_previous_chats_request_still_opens_and_a_new_chat_appears_grey(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a"), 0)
+        d.feed("hook", h("UserPromptSubmit", sid="b"), 1)
+        out = d.feed("hook", h("PermissionRequest", sid="a", tool_name="Bash", tool_input={"command": "ls"}), 2)
+        self.assertEqual([r["agent"] for r in out if r["type"] == "request"], [d.agents["a"].id])
+        self.assertEqual((d.agents["a"].state, d.agents["a"].active), ("needs_you", False))
+        d.feed("hook", h("SessionStart", sid="c"), 3)
+        self.assertEqual((d.agents["c"].state, d.agents["c"].active), ("idle", False))
 
     def test_a_session_ending_removes_its_sub_agents_first(self):
         d = Deck()
