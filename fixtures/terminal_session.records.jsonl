@@ -1,74 +1,74 @@
-{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 2, "detail": "Thinking", "context_pct": 5, "tokens": 0}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 2, "detail": "Thinking", "context_pct": 5, "tokens": 0, "model": ""}
 {"type": "usage", "five_hour_pct": 16, "five_hour_resets_min": 43, "seven_day_pct": 60, "seven_day_resets_min": 5903}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 3, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 3, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46051}
-{"type": "agent", "id": 2, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46051}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46565}
-{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 28565}
-{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 28565}
-{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 33945}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 3, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 0, "model": "high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 3, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46051, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 2, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46051, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx x xxxx xxxx xxxxxxx", "context_pct": 5, "tokens": 46565, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 0, "model": "high"}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 28565, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 28565, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 2, "parent": 1, "name": "xxx x xxxx xxxx xxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx \"xxxxx xxxx xxx xxx-xxxxx\" && xxxx && xxx", "context_pct": -1, "tokens": 33945, "model": "Opus 4.8 \u2022 high"}
 {"type": "remove", "id": 2}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 46565}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 46565}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 47011}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 46565, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 46565, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 47011, "model": "Opus 4.8 \u2022 high"}
 {"type": "usage", "five_hour_pct": 17, "five_hour_resets_min": 43, "seven_day_pct": 60, "seven_day_resets_min": 5903}
 {"type": "usage", "five_hour_pct": 17, "five_hour_resets_min": 42, "seven_day_pct": 60, "seven_day_resets_min": 5902}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 47011}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 9, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47011}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 9, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47161}
-{"type": "agent", "id": 3, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 47011, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 9, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47011, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 9, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47161, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 3, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 0, "model": "high"}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572, "model": "Opus 4.8 \u2022 high"}
 {"type": "request", "id": 1, "agent": 3, "tool": "Bash", "body": "xxxx -x -x xxxxx://xxxxxxx.xxx\n# xxxxx xxxx xxxxxxx xxxx xxxxxxx.xxx", "cut": false}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47161}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48048}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 47161, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxxxxxx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48048, "model": "Opus 4.8 \u2022 high"}
 {"type": "close", "id": 1, "reason": "answered_elsewhere"}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572}
-{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 34269}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 28572, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 3, "parent": 1, "name": "xxx xxxxxxx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xxxx -x -x xxxxx://xxxxxxx.xxx", "context_pct": -1, "tokens": 34269, "model": "Opus 4.8 \u2022 high"}
 {"type": "remove", "id": 3}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 48048}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 48048, "model": "Opus 4.8 \u2022 high"}
 {"type": "usage", "five_hour_pct": 17, "five_hour_resets_min": 41, "seven_day_pct": 60, "seven_day_resets_min": 5901}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 11, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48048}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 11, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48675}
-{"type": "agent", "id": 4, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxxx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xx...", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxxx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xx...", "context_pct": -1, "tokens": 28678}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 5, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 28678}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 17, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 49737}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 5, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 11, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48048, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 11, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 48675, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxxx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xx...", "context_pct": -1, "tokens": 0, "model": "high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 2, "detail": "Bash: xxxxx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xx...", "context_pct": -1, "tokens": 28678, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 5, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 28678, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 17, "detail": "Agent: xxx xx xxxxxxx xxxxxxxx", "context_pct": 5, "tokens": 49737, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "working", "since_s": 5, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075, "model": "Opus 4.8 \u2022 high"}
 {"type": "request", "id": 2, "agent": 4, "tool": "Bash", "body": "xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"\n# xxxxxx xxxx xxxx xxxx", "cut": false}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 18, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 49737}
-{"type": "agent", "id": 5, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 2, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 0}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 22, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 50428}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 2, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 50428}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 18, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 49737, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "general-purpose", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 2, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 0, "model": "high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 22, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 50428, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 2, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "Agent: xxx xxx xxxx xx xxxx", "context_pct": 5, "tokens": 50428, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "needs_you", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625, "model": "Opus 4.8 \u2022 high"}
 {"type": "request", "id": 3, "agent": 5, "tool": "Bash", "body": "xxx xxxx xxxxxx xxxxx-xxxx\n# xxxx xxxxx-xxxx xxxxxx xx xxxxxx", "cut": false}
 {"type": "close", "id": 2, "reason": "answered_elsewhere"}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075}
-{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34466}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34075, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 4, "parent": 1, "name": "xxx xx xxxxxxx xxxxxxxx", "state": "done", "since_s": 0, "detail": "Bash: xx /xxxxx/xxx/xxx-xxxx/xxxxxxxx_xxxx.xxx && xxxx \"xxxxxxx\"", "context_pct": -1, "tokens": 34466, "model": "Opus 4.8 \u2022 high"}
 {"type": "close", "id": 3, "reason": "answered_elsewhere"}
 {"type": "remove", "id": 4}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 50428}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 50428}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 51171}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "done", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625}
-{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "done", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 34154}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 50428, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "working", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 50428, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 51171, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "done", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 28625, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 5, "parent": 1, "name": "xxx xxx xxxx xx xxxx", "state": "done", "since_s": 0, "detail": "Bash: xxx xxxx xxxxxx xxxxx-xxxx", "context_pct": -1, "tokens": 34154, "model": "Opus 4.8 \u2022 high"}
 {"type": "remove", "id": 5}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 51171}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 51171}
-{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 52014}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 5, "tokens": 51171, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 51171, "model": "Opus 4.8 \u2022 high"}
+{"type": "agent", "id": 1, "parent": 0, "name": "xxxx xxxxxxxx xxxx xxxx xxxxxxx xx xx...", "state": "done", "since_s": 0, "detail": "", "context_pct": 5, "tokens": 52014, "model": "Opus 4.8 \u2022 high"}

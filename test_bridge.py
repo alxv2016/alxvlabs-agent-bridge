@@ -28,7 +28,7 @@ import hook  # noqa: E402
 import install  # noqa: E402
 import plugin_state  # noqa: E402
 from replay import load, replay  # noqa: E402
-from state import BODY_BYTES, Deck, cut_body, to_glass  # noqa: E402
+from state import BODY_BYTES, Deck, cut_body, model_name, to_glass  # noqa: E402
 from transcripts import Transcripts  # noqa: E402
 from usage_cache import UsageCache  # noqa: E402
 from usage_refresh import UsageRefresh  # noqa: E402
@@ -263,6 +263,40 @@ class Written(unittest.TestCase):
             self.assertIn({"session_id": "s1", "model": "claude-opus-5-5", "context_tokens": 9504,
                            "response_tokens": 210, "agent_id": "a1"}, out)
             self.assertIn({"session_id": "s1", "agent_id": "a1", "description": "Test bash approval prompt"}, out)
+
+    def test_a_model_reads_as_claude_code_names_it(self):
+        self.assertEqual(model_name("claude-opus-5-5"), "Opus 5.5")
+        self.assertEqual(model_name("claude-haiku-5-5"), "Haiku 5.5")
+        self.assertEqual(model_name("claude-opus-4-8[1m]"), "Opus 4.8")
+        self.assertEqual(model_name("claude-fable-5"), "Fable 5")
+        self.assertEqual(model_name("claude-opus-4-0"), "Opus 4")
+        self.assertEqual(model_name("claude-sonnet-4-5-20250929"), "Sonnet 4.5")
+        self.assertEqual(model_name("claude-3-5-sonnet-20241022"), "Sonnet 3.5")  # The older spelling
+        self.assertEqual(model_name("claude-3-opus-20240229"), "Opus 3")
+        self.assertEqual(model_name("us.anthropic.claude-sonnet-4-5-20250929-v1:0"), "Sonnet 4.5")  # Cloud providers'
+        self.assertEqual(model_name("anthropic.claude-3-5-sonnet-20241022-v2:0"), "Sonnet 3.5")
+        self.assertEqual(model_name("claude-sonnet-4-5@20250929"), "Sonnet 4.5")
+        self.assertEqual(model_name("gpt-x"), "gpt-x")  # Not one it knows: as it came
+
+    def test_an_agents_model_and_effort_reach_the_deck(self):
+        d = Deck()
+        d.feed("hook", h("SessionStart"), 0)
+        out = d.feed("transcript", {"session_id": "s1", "model": "claude-haiku-5-5", "context_tokens": 100,
+                                    "response_tokens": 1}, 1)
+        self.assertEqual(out[0]["model"], "Haiku 5.5")
+        out = d.feed("transcript", {"session_id": "s1", "model": "claude-opus-5-5", "context_tokens": 100,
+                                    "response_tokens": 1, "effort": "high"}, 2)
+        self.assertEqual(out[0]["model"], "Opus 5.5 • high")
+        out = d.feed("hook", h("PreToolUse", tool_name="Bash", tool_input={"command": "ls"},
+                               effort={"level": "xhigh"}), 3)
+        self.assertEqual(out[0]["model"], "Opus 5.5 • xhigh")
+
+    def test_a_synthetic_line_is_no_response(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s.jsonl")
+            with open(path, "w") as f:
+                f.write(json.dumps({"type": "assistant", "message": {"model": "<synthetic>", "usage": {}}}) + "\n")
+            self.assertEqual(Transcripts().observe(h("Stop", transcript_path=path)), [])
 
     def test_the_deck_shows_the_responses_tokens_and_the_context_share(self):
         d = Deck()

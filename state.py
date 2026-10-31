@@ -11,7 +11,7 @@
 Pure and deterministic: the clock is passed in, so a recording replays into the same records
 (DESIGN.md §3; the records are the firmware's AGENT_DECK §6). A record is a dict, one of:
 
-    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens"}
+    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"}
     {"type": "remove", "id"}
     {"type": "usage", "five_hour_pct", "five_hour_resets_min", "seven_day_pct", "seven_day_resets_min"}
     {"type": "request", "id", "agent", "tool", "body", "cut"}
@@ -28,10 +28,12 @@ from __future__ import annotations
 
 import math
 import os
+import re
 
 # onx/deck.h's limits.
 NAME_CHARS = 40
 DETAIL_CHARS = 64
+MODEL_CHARS = 24  # Characters, its • three bytes: inside kModelChars' 32 bytes
 TOOL_CHARS = 48
 BODY_BYTES = 2048
 QUESTION_CHARS = 240
@@ -185,6 +187,7 @@ class Agent:
         self.kind = ""  # A sub-agent's agent_type, kept when a description names its page
         self.state, self.since = DONE, now
         self.detail, self.context_pct, self.tokens = "", -1, 0
+        self.model, self.effort = "", ""  # As Claude Code names them: `Opus 5.5`, `high`
         self.has_status = False  # A status line has given its context: the transcript's is not needed
         self.sent = None  # the last record sent, less since_s
 
@@ -195,7 +198,24 @@ class Agent:
     def record(self, now: float) -> dict:
         return {"type": "agent", "id": self.id, "parent": self.parent, "name": self.name, "state": self.state,
                 "since_s": max(0, int(now - self.since)), "detail": self.detail,
-                "context_pct": self.context_pct, "tokens": self.tokens}
+                "context_pct": self.context_pct, "tokens": self.tokens,
+                "model": fit(to_glass(" • ".join(x for x in (self.model, self.effort) if x)), MODEL_CHARS)}
+
+
+def model_name(model_id: str) -> str:
+    """`claude-opus-5-5` as Claude Code names it, `Opus 5.5`; the older `claude-3-5-sonnet-20241022` and a cloud
+    provider's `us.anthropic.claude-sonnet-4-5-20250929-v1:0` or `claude-sonnet-4-5@20250929` too. An id it does not
+    recognise stays as it came."""
+    name = re.sub(r"^(?:[a-z]+\.)*anthropic\.|(?:[-@]\d{8})?(?:-v\d+(?::\d+)?)?$", "", base_model(model_id))
+    m = re.fullmatch(r"claude-([a-z]+)-(\d{1,2})(?:-(\d{1,2}))?", name)
+    if m is not None:
+        family, major, minor = m[1], m[2], m[3]
+    else:
+        m = re.fullmatch(r"claude-(\d{1,2})(?:-(\d{1,2}))?-([a-z]+)", name)
+        if m is None:
+            return str(model_id)
+        major, minor, family = m[1], m[2], m[3]
+    return f"{family.capitalize()} {major}.{minor}" if minor not in (None, "0") else f"{family.capitalize()} {major}"
 
 
 def base_model(model_id: str) -> str:
@@ -418,6 +438,9 @@ class Deck:
         key, a = self._actor(h, now)
         if a is None:
             return out
+        effort = h.get("effort")
+        if isinstance(effort, dict) and effort.get("level"):
+            a.effort = str(effort["level"])  # On a hook's input since Claude Code documents it there
         if h.get("session_title") and key == sid:
             a.name = fit(to_glass(h["session_title"]), NAME_CHARS)  # As Claude Code titles the session
 
@@ -533,6 +556,10 @@ class Deck:
             a.name = fit(to_glass(t["description"]), NAME_CHARS)  # As Claude Code's agent map titles it
         if t.get("title") and not agent:
             a.name = fit(to_glass(t["title"]), NAME_CHARS)  # As Claude Code's session list titles it
+        if t.get("model"):
+            a.model = model_name(t["model"])
+        if t.get("effort"):
+            a.effort = str(t["effort"])
         context = t.get("context_tokens")
         if context is not None:
             # As Claude Code's agent map counts them: a session's context, a sub-agent's with its last response.

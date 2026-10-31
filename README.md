@@ -109,9 +109,10 @@ bottom of a terminal Claude Code session reads `deck | …` while the bridge run
 - **Sessions and sub-agents** each get a page on the deck. A session is named as Claude Code titles it, as in VS
   Code's session list; a sub-agent after its task. Turn the knob to move between pages. A finished sub-agent's page goes
   when you send the session's next prompt (one still running stays); a session's goes when Claude Code ends it (`/exit` in a terminal).
-- **The token count** on a page is the figure in Claude Code's agent map: `895k in context` for a session, and
-  `88.7k tokens` for a sub-agent, its context with its last response. It is how big the conversation is, not what it
-  has spent, and it updates at each tool call rather than live.
+- **The line at the bottom of a page** is `895k Tokens` while an agent works, and its model and effort, `Opus 5.5 •
+  high`, when it is done or waiting. The tokens are the figure in Claude Code's agent map: a session's context, a
+  sub-agent's context with its last response. That is how big the conversation is, not what it has spent, and it
+  updates at each tool call rather than live.
 - **Permission requests** open on the deck by themselves, with the focus on Allow. Text too long for the deck is cut,
   and its last line says to read the full text in Claude Code; you can still answer on the deck. Claude Code's own
   prompt shows at the same time, and whichever you answer first settles it. Hold the knob to put a request aside and

@@ -1,4 +1,4 @@
-"""Reads Claude Code's transcripts: what each agent's latest response has written, a session's title and context size,
+"""Reads Claude Code's transcripts: each agent's tokens, model and effort, a session's title and context size,
 and a sub-agent's description.
 
     reader = Transcripts()
@@ -10,9 +10,8 @@ The hooks point at the files: `transcript_path` is the session's; a sub-agent's 
 from where the last read stopped. What it yields is an input like any other, so `bridge.py --record` keeps it and
 a recording replays with no transcript on disk (DESIGN.md §3):
 
-    {"session_id", "agent_id"?, "model", "context_tokens", "response_tokens"}
-        # the latest request's input and cache tokens; its output tokens, thinking included — as Claude Code's own count
-        # beside "Thinking..." shows them, from zero with each response — as far as the transcript has written it
+    {"session_id", "agent_id"?, "model", "context_tokens", "response_tokens", "effort"?}
+        # the latest request's input and cache tokens; its output tokens, thinking included; its effort level
     {"session_id", "title"}                                   # the session's title, as Claude Code names it
     {"session_id", "agent_id", "description"}                 # a sub-agent's, once
     {"session_id", "agent_id"?, "tool_results"}               # the tool calls that ended: their tool_use ids, a refused
@@ -70,10 +69,10 @@ class Transcripts:
         self.described: set[tuple] = set()
 
     def _read(self, path: str, own: bool) -> tuple[tuple | None, str | None, list[str]]:
-        """What a transcript adds since the last read: (model, context, output tokens) of its newest response, a new
-        title, and the tool calls that ended. A response is written a block at a time, each with the usage so far, so
-        its largest is the latest. A sub-agent's own file marks every line `isSidechain`; in a session's file such a
-        line is a sub-agent's (`own` False)."""
+        """What a transcript adds since the last read: (model, context, output tokens, effort) of its newest response, a
+        new title, and the tool calls that ended. A response's lines carry its final count `[R]` 2026-10-30. A `<synthetic>`
+        line is Claude Code's own, no response. A sub-agent's own file marks every line `isSidechain`; in a session's file
+        such a line is a sub-agent's (`own` False)."""
         tail = self.tails.setdefault(path, Tail(path))
         latest, title = None, None
         newest_id, written = None, 0
@@ -88,6 +87,8 @@ class Transcripts:
                 ended += [str(b["tool_use_id"]) for b in m["content"] if isinstance(b, dict)
                           and b.get("type") == "tool_result" and b.get("tool_use_id")]
             if d.get("type") == "assistant" and isinstance(m, dict) and isinstance(m.get("usage"), dict):
+                if str(m.get("model") or "").startswith("<"):
+                    continue
                 try:
                     out = int(m["usage"].get("output_tokens") or 0)
                     context = context_tokens(m["usage"])
@@ -97,7 +98,7 @@ class Transcripts:
                     newest_id, written = m.get("id"), out
                 else:
                     written = max(written, out)
-                latest = (str(m.get("model") or ""), context, written)
+                latest = (str(m.get("model") or ""), context, written, str(d.get("effort") or ""))
         return latest, title, ended
 
     def _context(self, sid: str, agent: str, path: str) -> list[dict]:
@@ -112,6 +113,8 @@ class Transcripts:
             return out
         self.sent[(sid, agent)] = latest
         rec = {"session_id": sid, "model": latest[0], "context_tokens": latest[1], "response_tokens": latest[2]}
+        if latest[3]:
+            rec["effort"] = latest[3]
         if agent:
             rec["agent_id"] = agent
         return out + [rec]
