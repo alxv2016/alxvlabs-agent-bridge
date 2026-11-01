@@ -131,6 +131,7 @@ class Bridge:
         self.waiting: dict[int, list] = {}  # request id -> [threading.Event, "allow" | "deny" | answers | None]
         self.transcripts = Transcripts()
         self.watched: dict[int, dict] = {}  # request id -> the hook that opened it, for its transcript
+        self.turns: dict[tuple, dict] = {}  # (session, agent) -> what its last hook says of its transcript
         self.usage_cache = usage_cache
         # Reentrant: a send that fails under it closes the link, whose on_lost takes it on the same thread.
         self.lock = threading.RLock()
@@ -200,6 +201,9 @@ class Bridge:
             inputs = [(kind, data)]
             if kind == "hook" and isinstance(data, dict):
                 inputs += [("transcript", t) for t in self.transcripts.observe(data)]
+                self.turns[(data.get("session_id"), data.get("agent_id"))] = {
+                    k: data[k] for k in ("session_id", "agent_id", "agent_type", "transcript_path",
+                                         "agent_transcript_path") if k in data}
             for k, d in inputs:
                 self.keep(now, k, d)
                 records = self.deck.feed(k, d, now)
@@ -216,10 +220,13 @@ class Bridge:
 
     def watch_transcripts(self) -> None:
         """No hook reports an answer in the terminal, but a refused call's result is in the transcript at once: read
-        on, while a request is open, for the ones that ended (DESIGN.md §4)."""
+        on, while a request is open, for the ones that ended (DESIGN.md §4). Nor does one report a turn interrupted, so
+        read on while an agent works too (§3)."""
         with self.lock:
             self.watched = {r: h for r, h in self.watched.items() if r in self.deck.requests}
-            hooks = {(h.get("session_id"), h.get("agent_id")): h for h in self.watched.values()}
+            self.turns = {k: h for k, h in self.turns.items() if self.deck.working(k[0] or "", k[1] or "") is not None}
+            hooks = {k: h for k, h in self.turns.items() if self.deck.working(k[0] or "", k[1] or "")}
+            hooks.update({(h.get("session_id"), h.get("agent_id")): h for h in self.watched.values()})
             now = time.time()
             for h in hooks.values():
                 for t in self.transcripts.observe(h):

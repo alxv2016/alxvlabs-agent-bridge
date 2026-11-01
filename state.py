@@ -57,6 +57,11 @@ NEEDS_YOU_NOTICES = {"permission_prompt", "elicitation_dialog", "elicitation_url
 # an answer can be given (§4); a PermissionRequest after that means the terminal is asking.
 TERMINAL_ONLY = {"AskUserQuestion"}
 
+# Prompts Claude Code submits itself, which `UserPromptSubmit` reports as it does the developer's (DESIGN.md §3). A task
+# notification may start no turn at all, so no `Stop`; a peer message, a sub-agent's handback, starts one.
+NOTICE_PROMPT = "<task-notification>"
+PEER_PROMPTS = ("Another Claude session sent a message:", "<agent-message")
+
 # A session's page before Claude Code has titled it.
 SESSION_NAME = "Claude Code"
 
@@ -193,6 +198,7 @@ class Agent:
         self.kind = ""  # A sub-agent's agent_type, kept when a description names its page
         self.state, self.since = DONE, now
         self.heard = now  # Its last hook
+        self.began = now  # Its turn: an interrupt in the transcript from before this ended an older one
         self.detail, self.context_pct, self.tokens = "", -1, 0
         self.model, self.effort = "", ""  # As Claude Code names them: `Opus 5.5`, `high`
         self.has_status = False  # A status line has given its context: the transcript's is not needed
@@ -373,6 +379,22 @@ class Deck:
         """Claude Code stopped waiting on request `rid`'s hook: something else answered it."""
         return self._ended_elsewhere([rid], now) + self._changed(now)
 
+    def _turn_over(self, key: str, a: Agent, now: float) -> list[dict]:
+        """Agent `key`'s turn ended: done, or in a previous chat idle, and a sub-agent there removed."""
+        out = self._close_for(key)
+        if not a.active and "/" in key:
+            out.append({"type": "remove", "id": self.agents.pop(key).id})  # A previous chat's: nothing to come back to
+            return out
+        a.set_state(DONE if a.active else IDLE, now)
+        if a.detail == "Thinking":
+            a.detail = ""  # A turn with no tool call leaves nothing it did
+        return out
+
+    def working(self, sid: str, agent: str = "") -> bool | None:
+        """Whether a session or sub-agent is working; None once it has gone."""
+        a = self.agents.get(f"{sid}/{agent}" if agent else sid)
+        return None if a is None else a.state == WORKING
+
     def _usage(self, now: float) -> list[dict]:
         def window(name):
             w = self.rate_limits.get(name)
@@ -513,8 +535,16 @@ class Deck:
         if h.get("session_title") and key == sid:
             a.name = fit(to_glass(h["session_title"]), NAME_CHARS)  # As Claude Code titles the session
 
+        prompt = str(h.get("prompt", "")).lstrip()
         if event == "SessionStart":
             pass  # A page, idle until the first prompt
+        elif event == "UserPromptSubmit" and prompt.startswith(NOTICE_PROMPT):
+            pass  # Maybe no turn, so no Stop to end one: a turn it does start shows from its first tool
+        elif event == "UserPromptSubmit" and prompt.startswith(PEER_PROMPTS):
+            # A turn, not the developer's: nothing they were asked is answered, and it takes no chat over.
+            if not any(k == key for k, _ in self.requests.values()):
+                a.set_state(WORKING, now)
+                a.began, a.detail = now, "Thinking"
         elif event == "UserPromptSubmit":
             # A deny in the terminal fires no hook; one with feedback arrives as this prompt. A sub-agent's
             # request still open was denied, and the sub-agent carries on until its own SubagentStop.
@@ -525,7 +555,7 @@ class Deck:
                 out += closed
             out += self._close_for(key)
             a.set_state(WORKING, now)
-            a.detail = "Thinking"
+            a.began, a.detail = now, "Thinking"
             if key == sid:
                 out += self._take_over(sid, now)
                 # The session's sub-agents that finished go with the turn they worked in — the developer's choice,
@@ -586,13 +616,7 @@ class Deck:
             if h.get("notification_type") in NEEDS_YOU_NOTICES and not asking:
                 a.set_state(NEEDS_YOU, now)
         elif event in ("Stop", "SubagentStop"):
-            out += self._close_for(key)
-            if not a.active and key != sid:
-                out.append({"type": "remove", "id": self.agents.pop(key).id})  # A previous chat's: nothing to come back to
-                return out
-            a.set_state(DONE if a.active else IDLE, now)
-            if a.detail == "Thinking":
-                a.detail = ""  # A turn with no tool call leaves nothing it did
+            out += self._turn_over(key, a, now)
         return out
 
     def _status(self, s: dict, now: float) -> list[dict]:
@@ -625,6 +649,9 @@ class Deck:
         if t.get("tool_results"):
             ended = set(t["tool_results"])
             return self._ended_elsewhere([r for r, use in self.request_uses.items() if use in ended], now)
+        if t.get("interrupted") is not None:
+            # A refusal in the terminal, or Esc: the turn is over and no Stop or SubagentStop says so (DESIGN.md §3).
+            return self._turn_over(f"{sid}/{agent}" if agent else sid, a, now) if t["interrupted"] >= a.began else []
         if t.get("description") and agent:
             a.name = fit(to_glass(t["description"]), NAME_CHARS)  # As Claude Code's agent map titles it
         if t.get("title") and not agent:

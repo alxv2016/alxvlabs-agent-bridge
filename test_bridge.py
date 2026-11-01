@@ -295,6 +295,162 @@ class Rules(unittest.TestCase):
         self.assertEqual(d.tick(61)[0]["five_hour_resets_min"], 9)
 
 
+class OwnPrompts(unittest.TestCase):
+    """Prompts Claude Code submits itself, in the hook orders of real sessions `[R]` 2026-10-31 (DESIGN.md §3)."""
+
+    NOTICE = "<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n</task-notification>"
+    PEER = 'Another Claude session sent a message:\n<agent-message from="a1">[Subagent report]</agent-message>'
+
+    def test_a_sub_agents_request_allowed_late_ends_with_nothing_at_work(self):
+        d = Deck()
+        sub = {"agent_id": "a1", "agent_type": "general-purpose"}
+        d.feed("hook", h("UserPromptSubmit", prompt="run a test"), 0)
+        d.feed("hook", h("SubagentStart", **sub), 2)
+        d.feed("hook", h("Stop"), 3)  # Run in the background: the session's turn ends at once
+        d.feed("hook", h("PreToolUse", tool_name="Bash", tool_use_id="t1", tool_input={"command": "ssh -V"}, **sub), 4)
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ssh -V"}, **sub), 5)
+        d.feed("hook", h("Notification", notification_type="permission_prompt"), 11)  # Dismissed: time for the notice
+        d.answered(1, 53)
+        d.feed("hook", h("PostToolUse", tool_name="Bash", **sub), 54)
+        d.feed("hook", h("UserPromptSubmit", prompt=self.PEER), 57)  # The handback starts a turn…
+        self.assertEqual(d.agents["s1"].state, "working")
+        d.feed("hook", h("SubagentStop", **sub), 57)
+        d.feed("hook", h("Stop"), 60)
+        out = d.feed("hook", h("UserPromptSubmit", prompt=self.NOTICE), 60)  # …and this one none: no Stop will come
+        self.assertEqual(out, [])
+        self.assertEqual(d.agents["s1"].state, "done")
+        self.assertEqual(d.agents["s1/a1"].state, "done")
+
+    def test_a_notice_that_starts_a_turn_shows_from_its_first_tool(self):
+        d = Deck()
+        d.feed("hook", h("Stop"), 0)
+        d.feed("hook", h("UserPromptSubmit", prompt=self.NOTICE), 1)
+        d.feed("hook", h("PreToolUse", tool_name="Bash", tool_input={"command": "git status"}), 2)
+        self.assertEqual(d.agents["s1"].state, "working")
+        d.feed("hook", h("Stop"), 3)
+        self.assertEqual(d.agents["s1"].state, "done")
+
+    def test_a_sub_agents_handback_leaves_anothers_request_open(self):
+        for prompt in (self.NOTICE, self.PEER):
+            with self.subTest(prompt[:8]):
+                d = Deck()
+                d.feed("hook", h("SubagentStart", agent_id="a", agent_type="Plan"), 0)
+                d.feed("hook", h("SubagentStart", agent_id="b", agent_type="Plan"), 0)
+                d.feed("hook", h("PermissionRequest", agent_id="b", agent_type="Plan", tool_name="Bash",
+                                 tool_input={"command": "git rm -n x"}), 1)
+                out = d.feed("hook", h("UserPromptSubmit", prompt=prompt), 2)
+                self.assertEqual([r for r in out if r["type"] == "close"], [])
+                self.assertIn(1, d.requests)
+                self.assertEqual(d.agents["s1/b"].state, "needs_you")
+
+    def test_a_handback_keeps_the_session_needing_you_while_it_waits(self):
+        d = Deck()
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}), 0)
+        d.feed("hook", h("UserPromptSubmit", prompt=self.PEER), 1)
+        self.assertEqual(d.agents["s1"].state, "needs_you")
+        self.assertIn(1, d.requests)
+
+    def test_they_take_no_chat_over_and_keep_finished_sub_agents(self):
+        for prompt in (self.NOTICE, self.PEER):
+            with self.subTest(prompt[:8]):
+                d = Deck()
+                d.feed("hook", h("UserPromptSubmit", sid="a", prompt="one"), 0)
+                d.feed("hook", h("UserPromptSubmit", sid="b", prompt="two"), 1)
+                d.feed("hook", h("UserPromptSubmit", sid="a", prompt=prompt), 2)
+                self.assertEqual(d.active_sid, "b")
+                d.feed("hook", h("SubagentStop", sid="b", agent_id="y", agent_type="Plan"), 3)
+                d.feed("hook", h("UserPromptSubmit", sid="b", prompt=prompt), 4)
+                self.assertIn("b/y", d.agents)
+
+    def test_the_developers_own_prompt_still_clears_the_finished(self):
+        d = Deck()
+        d.feed("hook", h("SubagentStop", agent_id="y", agent_type="Plan"), 1)
+        d.feed("hook", h("UserPromptSubmit", prompt="what does a <task-notification> mean?"), 2)
+        self.assertNotIn("s1/y", d.agents)
+
+
+class Interrupted(unittest.TestCase):
+    """A refusal in the terminal or Esc ends a turn and no hook says so `[R]` 2026-10-31 (DESIGN.md §3)."""
+
+    def test_a_request_refused_in_the_terminal_leaves_nothing_at_work(self):
+        d = Deck()
+        sub = {"agent_id": "a1", "agent_type": "Plan"}
+        d.feed("hook", h("PreToolUse", tool_name="Bash", tool_use_id="t1", tool_input={"command": "git rm -n x"},
+                         **sub), 1)
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "git rm -n x"}, **sub), 2)
+        d.feed("transcript", {"session_id": "s1", "agent_id": "a1", "tool_results": ["t1"]}, 9)
+        self.assertEqual(d.agents["s1/a1"].state, "working")  # As far as the tool's result says
+        out = d.feed("transcript", {"session_id": "s1", "agent_id": "a1", "interrupted": 9.0}, 9)
+        self.assertEqual(out[-1]["state"], "done")
+
+    def test_esc_in_a_session_closes_what_it_asked(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", prompt="go"), 1)
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}), 2)
+        out = d.feed("transcript", {"session_id": "s1", "interrupted": 3.0}, 3)
+        self.assertIn({"type": "close", "id": 1, "reason": "answered_elsewhere"}, out)
+        self.assertEqual(d.agents["s1"].state, "done")
+
+    def test_esc_before_any_tool_clears_thinking(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", prompt="go"), 1)
+        out = d.feed("transcript", {"session_id": "s1", "interrupted": 2.0}, 2)
+        self.assertEqual((out[-1]["state"], out[-1]["detail"]), ("done", ""))
+
+    def test_an_interrupt_older_than_the_turn_is_history(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", prompt="go"), 5)
+        self.assertEqual(d.feed("transcript", {"session_id": "s1", "interrupted": 4.0}, 5), [])
+        self.assertEqual(d.agents["s1"].state, "working")
+
+    def test_a_previous_chats_sub_agent_goes(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", sid="a", prompt="one"), 0)
+        d.feed("hook", h("SubagentStart", sid="a", agent_id="x", agent_type="Plan"), 1)
+        d.feed("hook", h("UserPromptSubmit", sid="b", prompt="two"), 2)
+        out = d.feed("transcript", {"session_id": "a", "agent_id": "x", "interrupted": 3.0}, 3)
+        self.assertEqual(out[0]["type"], "remove")
+        self.assertNotIn("a/x", d.agents)
+
+    @staticmethod
+    def line(text, at="2026-10-31T14:54:41.250Z", **kw):
+        return {"type": "user", "timestamp": at, "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+                **kw}
+
+    def read(self, *lines):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            with open(path, "w") as f:
+                f.writelines(json.dumps(x) + "\n" for x in lines)
+            return Transcripts().observe(h("Stop", transcript_path=path))
+
+    def test_the_transcript_says_when(self):
+        got = self.read(self.line("[Request interrupted by user for tool use]"))
+        self.assertEqual(got, [{"session_id": "s1", "interrupted": 1793458481.25}])
+
+    def test_one_a_response_came_after_is_over(self):
+        response = {"type": "assistant", "message": {"id": "m", "model": "claude-opus-5-5", "content": []}}
+        self.assertEqual(self.read(self.line("[Request interrupted by user]"), response), [])
+
+    def test_a_sub_agents_line_in_the_sessions_file_and_a_quoted_one_say_nothing(self):
+        self.assertEqual(self.read(self.line("[Request interrupted by user]", isSidechain=True)), [])
+        self.assertEqual(self.read(self.line("why did [Request interrupted by user] show?")), [])
+
+    def test_the_bridge_reads_on_while_an_agent_works(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            open(path, "w").close()
+            b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+            b.take("hook", h("UserPromptSubmit", prompt="go", transcript_path=path))
+            with open(path, "a") as f:
+                f.write(json.dumps(self.line("[Request interrupted by user]", at="2099-01-01T00:00:00.000Z")) + "\n")
+            b.tick()
+            self.assertEqual(b.deck.agents["s1"].state, "done")
+            b.take("hook", h("SessionEnd"))
+            b.tick()
+            self.assertEqual(b.turns, {})
+
+
 class Transcript(unittest.TestCase):
     @staticmethod
     def line(model="claude-opus-5-5", tokens=(4, 500, 9000), sidechain=False):
