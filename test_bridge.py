@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 
@@ -1166,6 +1167,37 @@ class Link(unittest.TestCase):
             link.close()
             os.close(master)
             os.close(slave)
+
+    def test_a_deck_that_stops_reading_does_not_hold_up_the_hooks(self):
+        """A firmware that never reads the line fills the port's buffer; a hook must still go through at once, its
+        records dropped as a deck not reading drops them, not waited on under the bridge's lock."""
+        import pty
+        try:
+            master, slave = pty.openpty()
+        except OSError as e:
+            self.skipTest(f"no pseudo-terminal here: {e}")
+        b = bridge.Bridge(None, io.StringIO())
+        opened = threading.Event()
+        link = serial_link.SerialLink(b.on_record, opened.set, port=os.ttyname(slave))
+        b.attach(link)
+        link.start()
+        filler = os.open(os.ttyname(slave), os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
+        try:
+            self.assertTrue(opened.wait(5))
+            try:
+                while True:
+                    os.write(filler, b"x" * 1024)  # Nobody reads the master side: the buffer fills
+            except BlockingIOError:
+                pass
+            started = time.monotonic()
+            for n in range(5):
+                b.take("hook", h("SessionStart", sid=f"s{n}"))
+            self.assertLess(time.monotonic() - started, 0.5)
+        finally:
+            link.stopping = True
+            link.close()
+            for fd in (filler, master, slave):
+                os.close(fd)
 
 
 class EndToEnd(unittest.TestCase):

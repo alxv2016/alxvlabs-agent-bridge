@@ -19,6 +19,7 @@ import fcntl
 import glob
 import json
 import os
+import queue
 import select
 import struct
 import termios
@@ -29,6 +30,11 @@ import zlib
 PREFIX = b"@deck "
 PORT_GLOBS = ("/dev/cu.usbmodem*", "/dev/ttyACM*")  # macOS, Linux
 REOPEN_S = 1.0
+# send() only queues a line; the writer thread waits on the port. The bridge sends under its own lock, so a deck
+# that stops reading — booting, hung, or a firmware that never reads the line — must not hold up Claude Code's
+# hooks behind it: each waited WRITE_WAIT_S a line with the lock held, past hook.py's 2 s (DESIGN.md §2).
+WRITE_WAIT_S = 1.0  # a line the deck does not take in this long is dropped, the port kept
+OUT_LINES = 256  # lines waiting for the deck; past it a line is dropped, as one the deck does not read is
 
 
 def encode(record: dict) -> bytes:
@@ -91,7 +97,8 @@ class SerialLink:
         self.port = port
         self.fd: int | None = None
         self.path: str | None = None  # the port open now
-        self.lock = threading.Lock()          # one writer at a time
+        self.lock = threading.Lock()          # the port's fd: opened, written and closed one at a time
+        self.out: queue.Queue[bytes] = queue.Queue(OUT_LINES)
         self.released_until = 0.0
         self.stopping = False
 
@@ -112,8 +119,18 @@ class SerialLink:
                 except OSError:
                     pass
                 self.fd = None
+        self.clear()
         if was_open and self.on_lost:
             self.on_lost()
+
+    def clear(self) -> None:
+        """Drops the lines still waiting: they were for a deck that is gone, or for one that has just booted and will
+        say hello for everything again."""
+        try:
+            while True:
+                self.out.get_nowait()
+        except queue.Empty:
+            pass
 
     @property
     def connected(self) -> bool:
@@ -127,24 +144,41 @@ class SerialLink:
     # Lines ------------------------------------------------------------------------------------------------------
 
     def send(self, record: dict) -> bool:
-        data = encode(record)
+        """Queues one record for the deck and returns at once: False with no deck attached, or OUT_LINES behind."""
+        if self.fd is None:
+            return False
+        try:
+            self.out.put_nowait(encode(record))
+        except queue.Full:
+            return False  # The deck not reading: this line is dropped, as one it does not take is
+        return True
+
+    def write(self, data: bytes) -> None:
+        """One line to the port, on the writer thread."""
         failed = False
         with self.lock:
             if self.fd is None:
-                return False
+                return
             try:
                 while data:
-                    _, ready, _ = select.select([], [self.fd], [], 1.0)
+                    _, ready, _ = select.select([], [self.fd], [], WRITE_WAIT_S)
                     if not ready:
-                        return False  # The deck not reading yet — booting: this line is dropped, the port kept
+                        return  # The deck not reading yet — booting: this line is dropped, the port kept
                     data = data[os.write(self.fd, data):]
             except BlockingIOError:
-                return False
+                return
             except OSError:
                 failed = True  # The port gone: unplugged or reset
         if failed:
             self.close()
-        return not failed
+
+    def writer(self) -> None:
+        while not self.stopping:
+            try:
+                data = self.out.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            self.write(data)
 
     def run(self) -> None:
         buf = b""
@@ -162,6 +196,7 @@ class SerialLink:
                 with self.lock:
                     self.fd, self.path = fd, path
                 buf = b""
+                self.clear()
                 self.on_open()
             fd = self.fd
             try:
@@ -183,3 +218,4 @@ class SerialLink:
 
     def start(self) -> None:
         threading.Thread(target=self.run, daemon=True).start()
+        threading.Thread(target=self.writer, daemon=True).start()
