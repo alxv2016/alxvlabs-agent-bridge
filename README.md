@@ -122,6 +122,10 @@ bottom of a terminal Claude Code session reads `deck | …` while the bridge run
   answer of your own. Left alone it goes there after two minutes (`--question-hold`). This needs firmware from the
   version that added questions; on older firmware they stay in Claude Code. With `install.py`, run it again to
   update the hooks.
+- **Joining your Wi-Fi from the deck**: on the deck's Wi-Fi page, Connect asks the bridge, over the cable, for the
+  network your Mac is on. The bridge reads that network's saved password from your Keychain, so macOS asks for your
+  admin password first; Cancel there and the deck says so. The password goes to the deck on the cable and nowhere
+  else: the bridge keeps no copy and logs none.
 - **Plan usage** comes from Claude Code. The VS Code extension does not save the figures its panel shows, so the
   bridge asks Claude Code for them when the deck connects and once an hour after (`claude -p /usage`, which asks
   the model nothing). A terminal session updates them after every reply.
@@ -182,6 +186,8 @@ repo's own build and test scripts do this themselves.
 
 - **Reads:** what Claude Code's hooks and status line tell it; Claude Code's transcripts under `~/.claude/projects`,
   for token counts, session titles and sub-agent names; and `~/.claude.json`, of which it keeps only the saved usage figures.
+  When the deck's Connect asks: the Mac's saved Wi-Fi networks, and one network's password from the Keychain, after
+  macOS's admin prompt.
 - **Sends:** to the deck over the USB cable, and nowhere else. It listens on `127.0.0.1` only. The hourly usage
   refresh is Claude Code's own `/usage`, under your own login.
 
@@ -193,7 +199,7 @@ repo's own build and test scripts do this themselves.
 | `install.py` | Setting up without the plugin, checking and removing |
 | `bridge.py` | The bridge itself |
 | `hook.py` | What Claude Code runs for each hook and status line |
-| `state.py`, `transcripts.py`, `usage_cache.py`, `usage_refresh.py`, `serial_link.py`, `plugin_state.py` | Its parts |
+| `state.py`, `transcripts.py`, `usage_cache.py`, `usage_refresh.py`, `serial_link.py`, `plugin_state.py`, `wifi.py` | Its parts |
 | `DESIGN.md` | How it works and why |
 | `test_bridge.py`, `replay.py`, `scrub.py`, `fixtures/` | For working on the bridge |
 

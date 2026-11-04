@@ -3,11 +3,13 @@
     python3 -m unittest discover -s .
 
 Every fixtures/<name>.inputs.jsonl replays into its <name>.records.jsonl; then the rules one by one, the
-installer on a scratch settings file, and hook.py through a running bridge.
+installer on a scratch settings file, joining a network from the deck on a made-up macOS, and hook.py through a
+running bridge.
 """
 
 from __future__ import annotations
 
+import contextlib
 import glob
 import io
 import json
@@ -34,6 +36,7 @@ from transcripts import Transcripts  # noqa: E402
 from usage_cache import UsageCache  # noqa: E402
 from usage_refresh import UsageRefresh  # noqa: E402
 import serial_link  # noqa: E402
+import wifi  # noqa: E402
 
 
 def h(event, sid="s1", cwd="/Users/dev/web-shop", **kw):
@@ -1198,6 +1201,266 @@ class Link(unittest.TestCase):
             link.close()
             for fd in (filler, master, slave):
                 os.close(fd)
+
+
+# Made-up networks and passwords only: a real one never goes in this file (DESIGN.md §9).
+HARDWARE_PORTS = """
+Hardware Port: Ethernet Adapter (en3)
+Device: en3
+Ethernet Address: 02:00:00:00:00:03
+
+Hardware Port: Wi-Fi
+Device: en0
+Ethernet Address: 02:00:00:00:00:00
+
+VLAN Configurations
+===================
+"""
+
+
+class FakeMacOS:
+    """networksetup and security as the bridge runs them, the saved networks and passwords made up. `gate`, while
+    clear, keeps `security` waiting, as the admin prompt does."""
+
+    def __init__(self, saved=("Studio",), passwords=None, keychain_exit=0, gate=None, ports=HARDWARE_PORTS):
+        self.saved, self.ports = saved, ports
+        self.passwords = {"Studio": "test-pass", "Loft": "loft-pass"} if passwords is None else passwords
+        self.keychain_exit, self.gate = keychain_exit, gate
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv, **kw):
+        self.calls.append(argv)
+        assert isinstance(argv, list) and not kw.get("shell")
+        code, out = 0, ""
+        if argv[1:] == ["-listallhardwareports"]:
+            out = self.ports
+        elif argv[1:] == ["-listpreferredwirelessnetworks", "en0"]:
+            out = "Preferred networks on en0:\n" + "".join(f"\t{n}\n" for n in self.saved)
+        elif argv[1] == "find-generic-password":
+            if self.gate is not None:
+                self.gate.wait(5)
+            name = argv[argv.index("-a") + 1]
+            if self.keychain_exit:
+                code = self.keychain_exit
+            elif name in self.passwords:
+                out = self.passwords[name] + "\n"
+            else:
+                code = wifi.ITEM_NOT_FOUND
+        else:
+            code = 1
+        return subprocess.CompletedProcess(argv, code, out.encode(), b"")
+
+    def keychain_asked(self) -> list[str]:
+        return [c[c.index("-a") + 1] for c in self.calls if c[1] == "find-generic-password"]
+
+
+def scan(*networks):
+    """A wifi_join of (name, rssi, secure) networks, strongest first."""
+    return {"type": "wifi_join", "names": [n[0] for n in networks], "rssi": [n[1] for n in networks],
+            "secure": [n[2] for n in networks]}
+
+
+class Wifi(unittest.TestCase):
+    def test_the_wifi_port_is_read_from_networksetup(self):
+        self.assertEqual(wifi.parse_hardware_ports(HARDWARE_PORTS), "en0")
+        self.assertIsNone(wifi.parse_hardware_ports(HARDWARE_PORTS.replace("Wi-Fi", "Bluetooth PAN")))
+        self.assertIsNone(wifi.parse_hardware_ports(""))
+        self.assertEqual(wifi.wifi_device(FakeMacOS()), "en0")
+        self.assertIsNone(wifi.wifi_device(lambda argv, **kw: subprocess.CompletedProcess(argv, 1, b"", b"")))
+
+    def test_the_saved_networks_are_read_from_networksetup(self):
+        text = "Preferred networks on en0:\n\tStudio\n\tHome Office \n\tLoft\n"
+        self.assertEqual(wifi.parse_preferred(text), ["Studio", "Home Office ", "Loft"])  # a name's spaces kept
+        self.assertEqual(wifi.parse_preferred("Preferred networks on en0:\n"), [])
+        self.assertEqual(wifi.parse_preferred("en3 is not a Wi-Fi interface.\n** Error: Error obtaining wireless "
+                                              "information.\n"), [])
+        self.assertEqual(wifi.saved_networks("en0", FakeMacOS(saved=("Studio", "Loft"))), ["Studio", "Loft"])
+        self.assertEqual(wifi.saved_networks("en3", FakeMacOS()), [])
+        self.assertEqual(wifi.Mac(FakeMacOS(saved=("Loft",))).saved(), ["Loft"])
+
+    def test_no_wifi_port_means_no_saved_networks(self):
+        fake = FakeMacOS(ports=HARDWARE_PORTS.replace("Wi-Fi", "Bluetooth PAN"))
+        self.assertEqual(wifi.Mac(fake).saved(), [])
+        self.assertNotIn("-listpreferredwirelessnetworks", [c[1] for c in fake.calls])
+
+    def test_the_candidates_are_the_scanned_networks_the_mac_knows_in_the_decks_order(self):
+        self.assertEqual(wifi.candidates(["Cafe", "Loft", "Studio", "Loft"], {"Studio", "Loft"}), ["Loft", "Studio"])
+        self.assertEqual(wifi.candidates(["Cafe"], ["Studio"]), [])
+
+    def test_the_keychain_is_asked_with_the_name_as_an_argument(self):
+        fake = FakeMacOS(passwords={"Studio; rm -rf ~": "test pass \n"})
+        self.assertEqual(wifi.keychain_password("Studio; rm -rf ~", fake), ("test pass \n", None))  # one newline off
+        self.assertEqual(fake.calls[0], ["/usr/bin/security", "find-generic-password", "-D", "AirPort network password",
+                                         "-a", "Studio; rm -rf ~", "-w"])
+
+    def test_the_keychains_refusals_have_their_reasons(self):
+        for code, why in ((44, "no_password"), (128, "cancelled"), (51, "cancelled"), (36, "cancelled"),
+                          (1, "no_password")):
+            self.assertEqual(wifi.keychain_password("Studio", FakeMacOS(keychain_exit=code)), (None, why), code)
+
+        def late(argv, **kw):
+            raise subprocess.TimeoutExpired(argv, kw["timeout"])
+
+        def missing(argv, **kw):
+            raise FileNotFoundError(argv[0])
+
+        self.assertEqual(wifi.keychain_password("Studio", late), (None, "cancelled"))  # the prompt left unanswered
+        self.assertEqual(wifi.keychain_password("Studio", missing), (None, "no_password"))
+
+    def test_the_prompt_is_given_minutes_not_seconds(self):
+        seen = {}
+
+        def run(argv, **kw):
+            seen.update(kw)
+            return subprocess.CompletedProcess(argv, 0, b"test-pass\n", b"")
+
+        wifi.keychain_password("Studio", run)
+        self.assertGreaterEqual(seen["timeout"], 120)
+        self.assertNotIn("shell", seen)
+
+
+class JoinFromTheDeck(unittest.TestCase):
+    def bridge(self, fake, record_path=None, out=None):
+        sent = []
+
+        class FakeLink:
+            connected = True
+
+            def send(self, r):
+                sent.append(r)
+                return True
+
+        b = bridge.Bridge(record_path, out or io.StringIO())
+        b.attach(FakeLink())
+        b.mac = wifi.Mac(fake)
+        return b, sent
+
+    @staticmethod
+    def settle(b):
+        t = b.wifi_thread
+        if t is not None:
+            t.join(5)
+
+    def test_one_network_both_know_is_sent_with_its_password(self):
+        b, sent = self.bridge(FakeMacOS(saved=("Studio", "Elsewhere")))
+        b.on_record(scan(("Cafe", -40, True), ("Studio", -48, True)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi", "name": "Studio", "password": "test-pass"}])
+
+    def test_several_are_offered_in_the_decks_order_with_its_signals(self):
+        b, sent = self.bridge(FakeMacOS(saved=("Studio", "Loft")))
+        b.on_record(scan(("Loft", -48, True), ("Cafe", -55, False), ("Studio", -63, True)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi_choose", "names": ["Loft", "Studio"], "rssi": [-48, -63]}])
+
+    def test_a_pick_of_one_offered_gets_its_password(self):
+        fake = FakeMacOS(saved=("Studio", "Loft"))
+        b, sent = self.bridge(fake)
+        b.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
+        self.settle(b)
+        self.assertEqual(fake.keychain_asked(), [])  # nothing read before the person picks
+        sent.clear()
+        b.on_record({"type": "wifi_pick", "name": "Studio"})
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi", "name": "Studio", "password": "test-pass"}])
+        self.assertEqual(fake.keychain_asked(), ["Studio"])
+
+    def test_a_pick_never_offered_is_out_of_reach_and_reads_nothing(self):
+        fake = FakeMacOS(saved=("Studio", "Loft"))
+        b, sent = self.bridge(fake)
+        b.on_record({"type": "wifi_pick", "name": "Studio"})  # no join before it
+        b.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
+        self.settle(b)
+        b.on_record({"type": "wifi_pick", "name": "Cafe"})
+        b.on_record({"type": "wifi_pick", "name": 3})
+        self.settle(b)
+        self.assertEqual([r for r in sent if r["type"] == "wifi_error"],
+                         [{"type": "wifi_error", "reason": "not_in_reach"}] * 3)
+        self.assertEqual(fake.keychain_asked(), [])
+
+    def test_no_network_both_know_is_out_of_reach(self):
+        fake = FakeMacOS(saved=("Studio",))
+        b, sent = self.bridge(fake)
+        b.on_record(scan(("Cafe", -40, True), ("Neighbour", -70, True)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi_error", "reason": "not_in_reach"}])
+        self.assertEqual(fake.keychain_asked(), [])
+
+    def test_no_keychain_item_is_no_password(self):
+        b, sent = self.bridge(FakeMacOS(saved=("Studio",), passwords={}))
+        b.on_record(scan(("Studio", -48, True)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi_error", "reason": "no_password"}])
+
+    def test_a_cancelled_prompt_is_cancelled(self):
+        b, sent = self.bridge(FakeMacOS(saved=("Studio",), keychain_exit=128))
+        b.on_record(scan(("Studio", -48, True)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi_error", "reason": "cancelled"}])
+
+    def test_an_open_network_gets_no_password_and_no_keychain(self):
+        fake = FakeMacOS(saved=("Cafe",))
+        b, sent = self.bridge(fake)
+        b.on_record(scan(("Cafe", -40, False)))
+        self.settle(b)
+        self.assertEqual(sent, [{"type": "wifi", "name": "Cafe", "password": ""}])
+        self.assertEqual(fake.keychain_asked(), [])
+
+    def test_a_second_join_while_the_prompt_is_up_is_ignored(self):
+        gate = threading.Event()
+        fake = FakeMacOS(saved=("Studio", "Loft"), gate=gate)
+        b, sent = self.bridge(fake)
+        b.on_record(scan(("Studio", -48, True)))
+        for _ in range(100):
+            if fake.keychain_asked():
+                break
+            time.sleep(0.01)
+        started = time.monotonic()
+        b.on_record(scan(("Loft", -40, True)))  # the serial reader is not held up by the prompt either
+        b.on_record({"type": "hello", "version": 3})
+        self.assertLess(time.monotonic() - started, 0.5)
+        gate.set()
+        self.settle(b)
+        self.assertEqual([r for r in sent if r["type"].startswith("wifi")],
+                         [{"type": "wifi", "name": "Studio", "password": "test-pass"}])
+        self.assertEqual(fake.keychain_asked(), ["Studio"])
+
+    def test_nothing_is_sent_with_no_deck_attached(self):
+        b, sent = self.bridge(FakeMacOS())
+        b.link.connected = False
+        b.on_record(scan(("Studio", -48, True)))
+        self.settle(b)
+        self.assertEqual(sent, [])
+
+    def test_the_password_and_the_scan_reach_the_cable_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path, out, err = os.path.join(tmp, "inputs.jsonl"), io.StringIO(), io.StringIO()
+            b, sent = self.bridge(FakeMacOS(saved=("Studio",)), record_path=path, out=out)
+            with contextlib.redirect_stderr(err):
+                b.take("hook", h("SessionStart"))  # the recording and stdout at work
+                b.on_record(scan(("Neighbour", -40, True), ("Studio", -48, True)))
+                self.settle(b)
+                b.on_record({"type": "wifi_pick", "name": "Studio"})
+                self.settle(b)
+                b.take("hook", h("Stop"))
+            b.record.close()
+            with open(path, encoding="utf-8") as f:
+                recorded = f.read()
+            self.assertIn("SessionStart", recorded)
+            self.assertIn({"type": "wifi", "name": "Studio", "password": "test-pass"}, sent)
+            for where in (recorded, out.getvalue(), err.getvalue()):
+                self.assertNotIn("test-pass", where)
+                self.assertNotIn("Neighbour", where)
+                self.assertNotIn("wifi", where)
+
+    def test_a_damaged_wifi_frame_keeps_its_body_out_of_the_boards_log(self):
+        frame = serial_link.encode(scan(("Neighbour", -40, True)))
+        damaged = b"I (812) usb_line: half a log li" + frame.replace(b"Neighbour", b"Neighbur").rstrip(b"\n")
+        self.assertIsNone(serial_link.decode(damaged))
+        text = serial_link.log_text(damaged)
+        self.assertNotIn("Neighb", text)
+        self.assertTrue(text.startswith("I (812) usb_line: half a log li@deck "))
+        self.assertEqual(serial_link.log_text(b"I (1) boot: a log line\r"), "I (1) boot: a log line")
 
 
 class EndToEnd(unittest.TestCase):

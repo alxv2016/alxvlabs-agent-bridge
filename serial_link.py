@@ -7,7 +7,8 @@
 
 A line is `@deck <crc32 hex> <json>`, both ways (onx/deck_link.h). The board's console log shares the cable: a
 line that is not a frame is the board's log, handed to `on_log`, and a frame may sit at the end of a log line a
-write split, so the prefix is looked for anywhere in a line.
+write split, so the prefix is looked for anywhere in a line. A damaged frame of a Wi-Fi record goes to `on_log`
+without its body: a scan names the neighbours' networks (DESIGN.md §9). Nothing sent is logged.
 
 The port is the ESP32-S3's USB Serial/JTAG (`/dev/cu.usbmodem*` on macOS, `/dev/ttyACM*` on Linux). DTR low with RTS high resets the chip, so the
 port is opened with both lines kept low (FIRMWARE_CONFIG §8). Standard library only: termios and fcntl.
@@ -28,6 +29,7 @@ import time
 import zlib
 
 PREFIX = b"@deck "
+WIFI_MARK = b'"wifi'  # Every Wi-Fi record's type starts so, wherever a torn frame's JSON keeps it
 PORT_GLOBS = ("/dev/cu.usbmodem*", "/dev/ttyACM*")  # macOS, Linux
 REOPEN_S = 1.0
 # send() only queues a line; the writer thread waits on the port. The bridge sends under its own lock, so a deck
@@ -62,6 +64,15 @@ def decode(line: bytes) -> dict | None:
     except ValueError:
         return None
     return record if isinstance(record, dict) else None
+
+
+def log_text(line: bytes) -> str:
+    """A line that is not a frame, as the board's log shows it: a damaged frame of a Wi-Fi record is cut at its
+    prefix, as a scan names the neighbours' networks (DESIGN.md §9)."""
+    at = line.find(PREFIX)
+    if at >= 0 and WIFI_MARK in line[at:]:
+        line = line[:at] + PREFIX + b"(a damaged Wi-Fi record, withheld)"
+    return line.decode(errors="replace").rstrip("\r")
 
 
 def open_without_reset(path: str) -> int:
@@ -214,7 +225,7 @@ class SerialLink:
                 if record is not None:
                     self.on_record(record)
                 elif self.on_log and raw.strip():
-                    self.on_log(raw.decode(errors="replace").rstrip("\r"))
+                    self.on_log(log_text(raw))
 
     def start(self) -> None:
         threading.Thread(target=self.run, daemon=True).start()

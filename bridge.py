@@ -25,6 +25,12 @@ at its PreToolUse, up to --question-hold seconds: no prompt shows until it goes 
 deck, or --no-serial, each goes back at once with no decision. POST /release {"seconds": N} lets go of the port
 for flashing, the boot check or a screenshot; the bridge opens it again afterwards and sends the deck everything.
 
+The deck's Connect, on its Wi-Fi page, sends its scan on the cable (`wifi_join`): the bridge crosses it with the Mac's
+saved networks and sends the one left, with its password from the Keychain behind macOS's admin prompt (`wifi`), or
+the several to pick from (`wifi_choose`), or why not (`wifi_error`) — on its own thread, so nothing waits on the prompt
+(wifi.py, DESIGN.md §9). Only the cable is answered, and the password goes on it alone: never on stdout, in a log or
+in --record's file.
+
 It takes 127.0.0.1's port before the deck's, and goes quietly when another bridge has it: one bridge at a time.
 --plugin NAME is how the Claude Code plugin's hook.py starts it: every PLUGIN_CHECK_S it reads Claude Code's own
 files (plugin_state.py) and stops once the plugin, seen installed, is disabled or uninstalled, or its folder is gone
@@ -45,6 +51,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import plugin_state
+import wifi
 from serial_link import SerialLink
 from state import Deck
 from transcripts import Transcripts
@@ -62,6 +69,7 @@ DEFAULT_QUESTION_HOLD_S = 120  # The terminal shows nothing while a question is 
 DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while the deck is attached — the developer's
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
 MAX_RELEASE_S = 600
+MAX_SCAN = 10  # The networks a wifi_join carries at most; past them the scan is not read (DESIGN.md §9)
 GONE_POLL_S = 0.25  # How often a held hook is looked at, to see whether Claude Code still waits on it
 ORPHAN_MARK = ".orphaned_at"  # Claude Code's mark on a version's folder an update has left behind
 UPDATED = "a newer version of the plugin is installed"
@@ -139,6 +147,11 @@ class Bridge:
         self.quiet = quiet  # no record on stdout: a login agent's log stays small
         self.record = open(record_path, "a", encoding="utf-8") if record_path else None
         self.link: SerialLink | None = None
+        self.mac = wifi.Mac()  # What the deck's Connect asks macOS; a fake in the tests
+        self.wifi_lock = threading.Lock()
+        self.wifi_thread: threading.Thread | None = None  # The lookup running, or None
+        self.wifi_offered: list[str] = []  # The last join's networks the Mac knows: the only ones a pick may name
+        self.wifi_secure: dict[str, bool] = {}  # Each scanned network's `secure`, from the last join
 
     # The deck on the cable --------------------------------------------------------------------------------------
 
@@ -175,6 +188,12 @@ class Bridge:
                 self.answer(r["id"], part, chosen)
                 if self.link:
                     self.link.send({"type": "ack", "id": r["id"], "part": part})
+        # The serial link is the only one that calls this today. A network link must never pass these two on: nothing
+        # on the network may make the bridge read the Keychain (DESIGN.md §9).
+        elif r.get("type") == "wifi_join":
+            self.wifi_join(r)
+        elif r.get("type") == "wifi_pick":
+            self.wifi_pick(r)
 
     def on_lost(self) -> None:
         """The deck gone — unplugged, reset, or the port lent out: nothing will answer what is held."""
@@ -182,6 +201,84 @@ class Bridge:
             self.deck.asks_questions = False
             for waiter in self.waiting.values():
                 waiter[0].set()
+        with self.wifi_lock:
+            self.wifi_offered, self.wifi_secure = [], {}  # A deck back asks again with a scan of its own
+
+    # Joining a network from the deck (DESIGN.md §9) ------------------------------------------------------------
+
+    def wifi_join(self, r: dict) -> None:
+        """The deck's scan: the networks the Mac knows too are looked up on a thread of their own. Ignored while a
+        lookup runs — the admin prompt may be up."""
+        names, rssi, secure = r.get("names"), r.get("rssi"), r.get("secure")
+        if not isinstance(names, list):
+            return
+        rssi = rssi if isinstance(rssi, list) else []
+        secure = secure if isinstance(secure, list) else []
+        scan: list[tuple[str, int, bool]] = []
+        for i, name in enumerate(names[:MAX_SCAN]):
+            if not isinstance(name, str) or not name or any(name == s[0] for s in scan):
+                continue
+            level = rssi[i] if i < len(rssi) and isinstance(rssi[i], int) and not isinstance(rssi[i], bool) else 0
+            locked = secure[i] if i < len(secure) and isinstance(secure[i], bool) else True  # Unknown: ask the Keychain
+            scan.append((name, level, locked))
+        self.wifi_start(self.wifi_joined, scan)
+
+    def wifi_pick(self, r: dict) -> None:
+        """The network picked on the deck from a wifi_choose: only one that was offered, else not_in_reach."""
+        name = r.get("name")
+        with self.wifi_lock:
+            offered = isinstance(name, str) and name in self.wifi_offered
+        if not offered:
+            self.wifi_send({"type": "wifi_error", "reason": wifi.NOT_IN_REACH})
+            return
+        self.wifi_start(self.wifi_send_network, name)
+
+    def wifi_start(self, work, arg) -> bool:
+        """`work(arg)` on a daemon thread, unless a lookup already runs; whether it started."""
+        with self.wifi_lock:
+            if self.wifi_thread is not None and self.wifi_thread.is_alive():
+                return False
+            self.wifi_thread = threading.Thread(target=self.wifi_run, args=(work, arg), daemon=True)
+            self.wifi_thread.start()
+        return True
+
+    def wifi_run(self, work, arg) -> None:
+        try:
+            work(arg)
+        except Exception as e:  # Its kind alone: a traceback or a message here could carry a name or the password
+            print(f"bridge: the Wi-Fi lookup failed: {type(e).__name__}", file=sys.stderr)
+            self.wifi_send({"type": "wifi_error", "reason": wifi.NO_PASSWORD})
+
+    def wifi_joined(self, scan: list[tuple[str, int, bool]]) -> None:
+        """On the lookup's thread: the scan crossed with the Mac's saved networks — none, one, or several to pick."""
+        both = wifi.candidates([s[0] for s in scan], self.mac.saved())
+        with self.wifi_lock:
+            self.wifi_offered = both
+            self.wifi_secure = {s[0]: s[2] for s in scan}
+        if not both:
+            self.wifi_send({"type": "wifi_error", "reason": wifi.NOT_IN_REACH})
+        elif len(both) == 1:
+            self.wifi_send_network(both[0])
+        else:
+            level = {s[0]: s[1] for s in scan}
+            self.wifi_send({"type": "wifi_choose", "names": both, "rssi": [level[n] for n in both]})
+
+    def wifi_send_network(self, name: str) -> None:
+        """On the lookup's thread: the network and its password, or why not. An open network needs no Keychain."""
+        with self.wifi_lock:
+            locked = self.wifi_secure.get(name, True)
+        password, why = self.mac.password(name) if locked else ("", None)
+        if password is None:
+            self.wifi_send({"type": "wifi_error", "reason": why or wifi.NO_PASSWORD})
+            return
+        # Straight to the cable: not through emit(), whose records reach stdout and the bridge's log.
+        self.wifi_send({"type": "wifi", "name": name, "password": password})
+
+    def wifi_send(self, record: dict) -> None:
+        """A Wi-Fi record to the deck alone, while it is attached: never printed, never recorded."""
+        link = self.link
+        if link is not None and link.connected:
+            link.send(record)
 
     def ping(self) -> None:
         if self.link is not None:

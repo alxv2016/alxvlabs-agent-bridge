@@ -1,7 +1,8 @@
 # Agent deck bridge — design
 
 How the bridge works and why: what it reads from Claude Code, the records it makes, how it holds a permission request
-or a question for the deck, how the plugin and `install.py` set it up, and what is still open. For whoever changes the bridge; how
+or a question for the deck, how the plugin and `install.py` set it up, how the deck joins the Mac's Wi-Fi network,
+and what is still open. For whoever changes the bridge; how
 to install and use it is the [README](README.md).
 
 **Source of truth.** The code in this folder, and this doc for the reasons. Claude Code's behaviour comes from its
@@ -18,6 +19,7 @@ number.
 | --- | --- |
 | `[CC]` | From Claude Code's documentation (code.claude.com/docs: hooks, status line, plugins, settings, sub-agents), read 2026-10-28 and 2026-10-29 |
 | `[R]` | Seen in a real Claude Code session recorded through the bridge, with the date; Claude Code 2.1.195 on macOS unless stated |
+| `[MAC]` | Seen on the developer's Mac, with the date; macOS 27 |
 | `[?]` | Unverified; tracked in §8 |
 
 | § | Section | Look here for |
@@ -30,6 +32,7 @@ number.
 | 6 | [Decisions](#6-decisions) | Why command hooks, why a detached bridge |
 | 7 | [Windows](#7-windows) | What runs there, what does not, the work |
 | 8 | [Open items](#8-open-items) | What is not yet known or built |
+| 9 | [Joining a network from the deck](#9-joining-a-network-from-the-deck) | The Wi-Fi records, the Keychain read, and where the password may go |
 
 ---
 
@@ -64,6 +67,7 @@ flowchart LR
 | `install.py` | Sets the bridge up: the hooks and both status lines in `~/.claude/settings.json`, backed up first, and on macOS, only when the developer says yes to its question — no the default, and the answer with no terminal to ask in — a login agent that runs `bridge.py --quiet` now and at every login and again if it stops, its log `~/Library/Logs/agent-deck-bridge.log`: the developer's choice, 2026-10-29, as starting at login unasked is invasive; `--login` and `--no-login` answer it, and no removes a login agent set up before; `--status` what is set up and whether the deck is attached (`GET /health`), `--uninstall` both out, `--dry-run`. It knows its own entries by their `hook.py` command wherever the folder lives, and stops at a status line that is not the bridge's; while its hooks are in, the plugin's stand aside (§5). The developer runs it — an agent's sandbox may not write `~/.claude` or `~/Library` |
 | `replay.py`, `scrub.py` | Play a recording into records, or check them against a file — `--context-window N` as the bridge was run; clean a recording for the repo — ids, paths and free text replaced, the shape and timing kept |
 | `test_bridge.py`, `fixtures/` | Every `<name>.inputs.jsonl` replayed into its `<name>.records.jsonl`, the rules one by one, the installer, `hook.py` through a running bridge, the plugin's state and its manifests |
+| `wifi.py` | What the deck's Connect asks macOS (§9): the Wi-Fi device (`networksetup -listallhardwareports`), the networks the Mac has saved on it (`networksetup -listpreferredwirelessnetworks`), the deck's scan crossed with them, and one network's password (`security find-generic-password`), each command run as an argument list with its absolute path, never through a shell |
 | `plugin_state.py` | Whether the plugin is installed and switched on, from Claude Code's own files: `~/.claude/plugins/installed_plugins.json` and the `enabledPlugins` of each install's scope (§5) |
 | `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json` | The plugin and the marketplace that lists it, both this folder (`"source": "./"`); every event of §3 running `hook.py hook --plugin` (§5) |
 
@@ -237,3 +241,42 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 | A request answered in the terminal, in a real session: that a deny's `tool_result` reaches the transcript at once, and whether Claude Code stops the held hook, which decides how fast an allow leaves the deck | Open `[?]` | One allow and one deny in the terminal, with a long-running tool |
 | A question answered on the deck in a real session: Claude Code taking `answers` from a `PreToolUse` hook with a multi-select's labels joined, and what a developer pressing Esc during the hold leaves behind | Open `[?]` | One real `AskUserQuestion` with the deck attached |
 | The plugin end to end: installed from the GitHub marketplace, the bridge started by a hook, stopped by a disable and by an uninstall | Open `[?]` | One install from `alxv2016/alxvlabs-agent-bridge` with the deck attached |
+| The Keychain read from a bridge started detached by a hook: whether macOS shows its admin prompt to it at all, and the exits of a cancelled prompt and a wrong password, taken as 128 and 51 from the codes' low bytes, not yet seen (§9) | Open `[?]` | One Connect on the deck with the plugin's bridge, cancelled once and answered once |
+
+---
+
+## 9. Joining a network from the deck
+
+The deck's Wi-Fi page asks the bridge, on the cable, for the network the Mac is on and its password, so it can join
+the same one; macOS's own admin prompt guards the password. The flow and the deck's side are the firmware's
+[AGENT_DECK §19.8](https://github.com/alxv2016/claude-agent-deck/blob/main/docs/JC3636K718_AGENT_DECK.md#198-joining-a-network-from-the-deck).
+`wifi.py` asks macOS; `Bridge.wifi_join()` and `wifi_pick()` answer the deck.
+
+| Record | From | Carries |
+| --- | --- | --- |
+| `wifi_join` | Deck | `names`, `rssi`, `secure`: its 2.4 GHz scan, at most 10 networks (`MAX_SCAN`), each once, strongest first |
+| `wifi_choose` | Bridge | `names`, `rssi`: the scanned networks the Mac has saved, when there are several, in the deck's order with its signals |
+| `wifi_pick` | Deck | `name`: the one picked with the knob |
+| `wifi` | Bridge | `name`, `password`: the network to join; `""` for an open one, `secure` false in the scan |
+| `wifi_error` | Bridge | `reason`: `not_in_reach` — no scanned network saved on the Mac, or a pick never offered; `cancelled` — the admin prompt cancelled, refused or left 120 s; `no_password` — no Keychain item, or any other failure |
+
+- **The Mac's network is found by elimination.** macOS hides the current network's name from a process with no
+  Location permission; the networks it has saved are listed to anyone `[MAC]` 2026-11-03. The scan crossed with that
+  list leaves the candidates: one is taken, several go to the deck as `wifi_choose`, none is `not_in_reach`. A pick
+  must name a network the last `wifi_join` offered.
+- **The password comes from the Keychain**, `security find-generic-password -D "AirPort network password" -a <name>
+  -w`, the name an argument of its own. macOS asks for the admin password first `[MAC]` 2026-11-03, so the lookup
+  waits up to 120 s (`KEYCHAIN_TIMEOUT_S`) on a thread of its own: the serial reader and the hooks never wait on the
+  prompt, and a second `wifi_join` while it runs is ignored. An open network reads nothing.
+- **`security` exits with the OSStatus' low byte**, as `security error` names them: 44 is errSecItemNotFound
+  (−25300), `no_password`; 128 errSecUserCanceled (−128), 51 errSecAuthFailed (−25293), 36
+  errSecInteractionNotAllowed (−25308), 154 and 155 Authorization Services' cancelled and denied, all `cancelled`.
+  Which of them a cancelled prompt gives is not yet seen (§8).
+- **Only the cable's word reads the Keychain.** The serial link is the only one that hands the bridge the deck's
+  records; a network link must never pass `wifi_join` or `wifi_pick` on, so nothing on the network can make the
+  bridge read a password.
+- **The password is held in memory only, and goes on the cable alone.** The `wifi` record is sent straight to the
+  link, not through `emit()`: never on stdout, which is the plugin's log, never in `--record`'s file, which keeps only
+  Claude Code's inputs, and so never in `replay.py`'s or `scrub.py`'s. Nothing about a lookup is logged but a failure's
+  kind. The neighbours' network names stay out of the log too: a damaged Wi-Fi frame reaches the board's log cut at
+  its prefix (`serial_link.log_text()`). The tests use made-up networks and passwords only.
