@@ -913,7 +913,8 @@ class Questions(unittest.TestCase):
     def ask(self, tool_input=None):
         d = Deck()
         d.asks_questions = True
-        return d, d.feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=tool_input or TWO_QUESTIONS), 0)
+        return d, d.feed("hook", h("PermissionRequest", tool_name="AskUserQuestion",
+                                   tool_input=tool_input or TWO_QUESTIONS), 0)
 
     def test_a_question_reaches_a_deck_that_takes_them(self):
         _, out = self.ask()
@@ -923,14 +924,21 @@ class Questions(unittest.TestCase):
                                    "options": ["main: The release branch", "develop"]})
 
     def test_a_deck_on_older_firmware_keeps_the_terminal(self):
-        out = Deck().feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS), 0)
+        out = Deck().feed("hook", h("PermissionRequest", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS), 0)
         self.assertNotIn("question", [r["type"] for r in out])
+
+    def test_a_question_waits_for_the_terminals_prompt_to_open_on_the_deck(self):
+        d = Deck()
+        d.asks_questions = True
+        out = d.feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS), 0)
+        self.assertNotIn("question", [r["type"] for r in out])
+        self.assertEqual(d.requests, {})
 
     def test_a_question_the_deck_cannot_hold_stays_in_the_terminal(self):
         many = {"questions": [{"question": "Which?", "options": [{"label": str(i)} for i in range(5)]}]}
         d = Deck()
         d.asks_questions = True
-        out = d.feed("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=many), 0)
+        out = d.feed("hook", h("PermissionRequest", tool_name="AskUserQuestion", tool_input=many), 0)
         self.assertNotIn("question", [r["type"] for r in out])
 
     def test_each_part_follows_the_last_and_the_answers_are_keyed_by_question(self):
@@ -964,9 +972,9 @@ class Questions(unittest.TestCase):
 
     def bridge_holding(self, seconds=5):
         out = io.StringIO()
-        b = bridge.Bridge(None, out, hold_s=5, question_hold_s=seconds)
+        b = bridge.Bridge(None, out, hold_s=seconds)
         b.deck.asks_questions = True
-        b.take("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
+        b.take("hook", h("PermissionRequest", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
         result = {}
         t = threading.Thread(target=lambda: result.setdefault("answer", b.hold(1, seconds)))
         t.start()
@@ -1039,9 +1047,9 @@ class Questions(unittest.TestCase):
         here.close()
 
     def test_an_answer_that_beats_the_hooks_hold_is_kept(self):
-        b = bridge.Bridge(None, io.StringIO(), hold_s=5, question_hold_s=5)
+        b = bridge.Bridge(None, io.StringIO(), hold_s=5)
         b.deck.asks_questions = True
-        b.take("hook", h("PreToolUse", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
+        b.take("hook", h("PermissionRequest", tool_name="AskUserQuestion", tool_input=TWO_QUESTIONS))
         b.answer(1, 0, 0)  # The deck's queue was full: back before the hook reached hold()
         self.assertIsNone(b.hold(1, 5))
         self.assertEqual(b.waiting, {})

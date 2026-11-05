@@ -568,18 +568,6 @@ class Deck:
             a.detail = tool_summary(h.get("tool_name", ""), h.get("tool_input", {}))
             if h.get("tool_use_id"):
                 self.tool_uses[(key, h.get("tool_name", ""))] = str(h["tool_use_id"])
-            questions = question_parts(h.get("tool_input", {})) if h.get("tool_name") in TERMINAL_ONLY else None
-            if questions and self.asks_questions:
-                rid = self.next_request
-                self.next_request = self.next_request % 0xFFFFFFFF + 1
-                self.requests[rid] = (key, h["tool_name"])
-                self._hold_use(rid, key, h["tool_name"])
-                self.asks[rid] = Ask(questions)
-                a.set_state(NEEDS_YOU, now)
-                out += self._changed(now)  # The page shows Needs you before its question opens
-                record = question_record(rid, a.id, questions, 0)
-                self.request_records[rid] = record
-                out.append(record)
         elif event in ("PostToolUse", "PostToolUseFailure", "PermissionDenied"):
             # The tool ran or was refused: a request it made was answered somewhere else. A sub-agent's
             # request is seen to carry agent_id (§15) though not documented to; looking on its session hedges.
@@ -593,8 +581,20 @@ class Deck:
             if not any(k == key for k, _ in self.requests.values()):
                 a.set_state(WORKING, now)
         elif event == "PermissionRequest" and h.get("tool_name", "") in TERMINAL_ONLY:
+            # The terminal is asking now, and the deck asks too: whichever is answered first settles it (DESIGN.md §4).
             a.set_state(NEEDS_YOU, now)
             a.detail = tool_summary(h.get("tool_name", ""), h.get("tool_input", {}))
+            questions = question_parts(h.get("tool_input", {}))
+            if questions and self.asks_questions:
+                rid = self.next_request
+                self.next_request = self.next_request % 0xFFFFFFFF + 1
+                self.requests[rid] = (key, h["tool_name"])
+                self._hold_use(rid, key, h["tool_name"])
+                self.asks[rid] = Ask(questions)
+                out += self._changed(now)  # The page shows Needs you before its question opens
+                record = question_record(rid, a.id, questions, 0)
+                self.request_records[rid] = record
+                out.append(record)
         elif event == "PermissionRequest":
             tool = h.get("tool_name", "")
             body, cut = cut_body(request_body(tool, h.get("tool_input", {})))

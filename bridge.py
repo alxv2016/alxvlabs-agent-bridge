@@ -2,7 +2,7 @@
 """The agent deck's bridge on the Mac: Claude Code's hooks and status line in, the deck's records out.
 
     bridge.py [--port 8737] [--record FILE] [--context-window 1000000] [--no-usage-cache] [--refresh-usage 3600]
-              [--serial /dev/cu.usbmodem101 | --no-serial] [--hold 570] [--question-hold 30]
+              [--serial /dev/cu.usbmodem101 | --no-serial] [--hold 570]
               [--answer allow|deny SECONDS] [--plugin NAME]
 
 Listens on 127.0.0.1 only for what hook.py forwards — POST /hook, /status, /subagent-status — runs it through
@@ -21,7 +21,7 @@ once as the deck connects, 0 never), as the VS Code extension does not save its 
 
 With the deck attached, each permission request is held for its answer, up to --hold seconds; Claude Code's own
 prompt shows meanwhile, and whichever answers first settles it (DESIGN.md §4). A question (AskUserQuestion) is held
-at its PreToolUse, up to --question-hold seconds: no prompt shows until it goes back, so that hold is shorter. With no
+the same way, at its PermissionRequest, the terminal asking it meanwhile. With no
 deck, or --no-serial, each goes back at once with no decision. POST /release {"seconds": N} lets go of the port
 for flashing, the boot check or a screenshot; the bridge opens it again afterwards and sends the deck everything.
 
@@ -73,7 +73,6 @@ NAMED_VERSION = 4      # And names the deck: `id`, `board` and `link` (the firmw
 HELLO_FIELD = re.compile(r"[a-z0-9-]{1,16}")  # A hello's names, as the deck sends them (deck_link.h kMaxHelloField)
 PING_S = 2.0          # onx/deck_link.h kPingMs: the deck takes the bridge for gone after three missed
 DEFAULT_HOLD_S = 570  # Under hook.py's 590 s wait on a request
-DEFAULT_QUESTION_HOLD_S = 30  # The terminal shows nothing while a question is held, so it waits less (DESIGN.md §4)
 DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while the deck is attached — the developer's
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
 MAX_RELEASE_S = 600
@@ -138,11 +137,9 @@ class PluginWatch:
 
 class Bridge:
     def __init__(self, record_path: str | None, out=sys.stdout, context_window: int | None = None,
-                 usage_cache: UsageCache | None = None, hold_s: float = 0, quiet: bool = False,
-                 question_hold_s: float = DEFAULT_QUESTION_HOLD_S):
+                 usage_cache: UsageCache | None = None, hold_s: float = 0, quiet: bool = False):
         self.deck = Deck(context_window)
         self.hold_s = hold_s
-        self.question_hold_s = question_hold_s
         self.stand_in: tuple[str, float] | None = None  # --answer: "allow" or "deny" after so many seconds
         self.waiting: dict[int, list] = {}  # request id -> [threading.Event, "allow" | "deny" | answers | None]
         self.transcripts = Transcripts()
@@ -586,12 +583,13 @@ def handler(bridge: Bridge):
             if asked is not None and not bridge.device_ready():
                 bridge.drop(asked)
             elif asked is not None:
-                answers = bridge.hold(asked, bridge.question_hold_s, lambda: peer_gone(self.connection))
+                answers = bridge.hold(asked, gone=lambda: peer_gone(self.connection))
                 if answers:
-                    # The whole input again, its answers added: AskUserQuestion then runs without asking (DESIGN.md §4).
-                    answer = json.dumps({"hookSpecificOutput": {
-                        "hookEventName": "PreToolUse", "permissionDecision": "allow",
-                        "updatedInput": {**data.get("tool_input", {}), "answers": answers}}}).encode()
+                    # The whole input again, its answers added: AskUserQuestion then runs without asking, and the
+                    # terminal's prompt goes (DESIGN.md §4).
+                    answer = json.dumps({"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {
+                        "behavior": "allow",
+                        "updatedInput": {**data.get("tool_input", {}), "answers": answers}}}}).encode()
             elif rid is not None and bridge.hold_s > 0 and (bridge.stand_in or bridge.device_ready()):
                 behavior = bridge.hold(rid, gone=lambda: peer_gone(self.connection))
                 if behavior:
@@ -638,10 +636,7 @@ def main() -> int:
     ap.add_argument("--refresh-usage", type=float, default=DEFAULT_REFRESH_S, metavar="SECONDS",
                     help=f"run `claude -p /usage` this often while the deck is attached; 0 never ({DEFAULT_REFRESH_S})")
     ap.add_argument("--hold", type=float, default=DEFAULT_HOLD_S, metavar="SECONDS",
-                    help=f"hold each permission request this long for the deck's answer (under 580; {DEFAULT_HOLD_S})")
-    ap.add_argument("--question-hold", type=float, default=DEFAULT_QUESTION_HOLD_S, metavar="SECONDS",
-                    help=f"hold each question this long for the deck's answer; the terminal shows nothing meanwhile "
-                         f"(under 580; {DEFAULT_QUESTION_HOLD_S})")
+                    help=f"hold each permission request and question this long for the deck's answer (under 580; {DEFAULT_HOLD_S})")
     ap.add_argument("--serial", metavar="PORT", help="the deck's port (else the one /dev/cu.usbmodem* or /dev/ttyACM*)")
     ap.add_argument("--no-serial", action="store_true", help="no deck: print the records only")
     ap.add_argument("--quiet", action="store_true", help="print no records, only the bridge's and the board's lines")
@@ -661,7 +656,7 @@ def main() -> int:
 
     bridge = Bridge(args.record, context_window=args.context_window,
                     usage_cache=None if args.no_usage_cache else UsageCache(), hold_s=min(args.hold, 580),
-                    quiet=args.quiet, question_hold_s=min(args.question_hold, 580))
+                    quiet=args.quiet)
     if args.answer:
         if args.answer[0] not in ("allow", "deny") or args.hold <= 0:
             ap.error("--answer allow|deny SECONDS needs --hold")

@@ -53,7 +53,7 @@ EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostT
           "PermissionRequest", "PermissionDenied", "Notification", "Stop", "SubagentStart", "SubagentStop")
 HOOK_TIMEOUT_S = 5
 REQUEST_TIMEOUT_S = 600  # A permission request or question the bridge holds for the device: over hook.py's REQUEST_TIMEOUT_S
-HELD_EVENTS = ("PermissionRequest", "PreToolUse")  # hook.py's own limits keep every other PreToolUse to 2 s
+HELD_EVENTS = ("PermissionRequest",)  # A request or a question, held for the deck's answer
 
 
 def command(kind: str) -> str:

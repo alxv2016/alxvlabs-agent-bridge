@@ -84,8 +84,7 @@ flowchart LR
 | `UserPromptSubmit` | Requests still open on its sub-agents closed, `answered_elsewhere`, and those sub-agents back to `working` — a deny in the terminal fires no hook; one with feedback arrives as this prompt, and the sub-agent works on until its own `SubagentStop` `[R]` 2026-10-29; the session's own open requests closed too, and the session `working`, detail `Thinking`, and its sub-agents that finished removed, one still running staying: the developer's choice, 2026-10-29, so the pages are the work in hand. The session is now the active chat, the closest there is to the one on view: no hook is known to fire as VS Code changes chat (§8). Every other agent gets `active` false, grey on the deck, the developer's choice, 2026-10-30; another session that was `done` goes `idle`, and its finished sub-agents are removed. What still runs keeps its state and page, and a request it makes opens on the deck |
 | `UserPromptSubmit` for a prompt Claude Code submitted itself | The developer's prompts alone do all of the above. `prompt` starting `<task-notification>` changes nothing: a sub-agent that handed back gets one queued with no model call, so no `Stop` follows it, and a turn one does start shows from its first tool `[R]` 2026-10-31, Claude Code 2.1.314. `Another Claude session sent a message:`, a sub-agent's handback, starts a turn that ends in a `Stop`: the session `working`, detail `Thinking`, unless it still waits on a request of its own. Neither closes a request, takes the chat over or removes a finished sub-agent |
 | `PreToolUse` | The agent's own open requests closed, `answered_elsewhere`; `working`, detail the tool and what it touches: `Bash: npm test`, `Edit: deck.cpp`, `WebFetch: example.com` |
-| `PreToolUse` for `AskUserQuestion`, the deck taking questions | As any `PreToolUse`, then `needs_you` and a question record, one part of the call at a time (§4). A question the deck cannot hold, over four options or with none, is left to the terminal |
-| `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …` — no request: allowing it only lets the question be asked, and its answer is the option the developer picks; seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29. So it reaches the deck at `PreToolUse`, and this hook means the terminal is asking |
+| `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …`, and with the deck taking questions a question record, one part of the call at a time, the terminal asking it meanwhile (§4); plain `allow` only lets the question be asked, seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29, so the deck's answer carries the answers. A question the deck cannot hold, over four options or with none, is left to the terminal |
 | `PermissionRequest` | On the agent that asked — from inside a sub-agent it carries `agent_id` `[R]` 2026-10-29 — `needs_you`, then a request: the whole command and its description, the path and diff or new content, the URL and prompt, or else the input's fields one a line; over 2048 B of UTF-8 cut on a character and marked `cut` |
 | `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | The agent's open request for that tool closed, `answered_elsewhere`; `working`. An allow in the terminal shows as the tool's `PostToolUse` `[R]` 2026-10-29, or `PostToolUseFailure` when it fails, each only once the tool has finished `[CC]` |
 | `Notification` (`permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input`) | The session `needs_you`, unless a request from it or its sub-agents is open: the notice carries no `agent_id` `[R]` 2026-10-29 |
@@ -117,15 +116,14 @@ flowchart LR
   undocumented, as transcripts are. Every 250 ms (`GONE_POLL_S`) it looks at the hook's connection, which closes if
   Claude Code stops the hook; whether it does is undocumented (§8). Either closes the request `answered_elsewhere`.
   An allow whose tool runs for minutes, if Claude Code leaves the hook running, still shows until the tool ends.
-- **A question is held at `PreToolUse`, not at `PermissionRequest`.** Only there can a hook answer it: `allow` with
-  `updatedInput` holding the input's `questions` and an `answers` map runs the tool without prompting, and `allow`
-  alone is not enough `[CC]`. `answers` is keyed by each question's text, its value the option's `label`, several
-  joined with `, ` `[CC]`. The same at `PermissionRequest` is undocumented and not tried.
-- **Nothing shows in the terminal while a question is held**, as the prompt comes after `PreToolUse`, so there is no
-  answering in both places as a request has. A call is held `--question-hold` seconds (30 by default, under 580 — the developer's choice, 2026-11-05), all
-  its parts together: long enough to reach the knob, short enough that a developer at the keyboard is not left waiting. Then it closes
-  `timed_out` and the terminal asks. The hook's `timeout` is 600 s for every `PreToolUse`, a ceiling: `hook.py`'s own
-  2 s still bounds every other tool.
+- **A question is held at its `PermissionRequest`, as a request is**, so the terminal asks it meanwhile and whichever
+  is answered first settles it — the developer's ask, 2026-11-05: held at `PreToolUse` it showed nothing in the terminal
+  until the hook went back. The deck's answer goes back as `allow` with `updatedInput`, the input's `questions` and an
+  `answers` map, as the Agent SDK's `canUseTool` answers a question `[CC]`; from a hook that is undocumented `[?]` (§8).
+  `answers` is keyed by each question's text, its value the option's `label`, several joined with `, ` `[CC]`. An
+  answer in the terminal ends the call, and its `PostToolUse` or its `tool_result` closes the question
+  `answered_elsewhere`. It is held `--hold` seconds, all its parts together, then closes `timed_out`, the terminal still
+  asking. `PreToolUse` holds nothing: its hook's `timeout` is 5 s again.
 - **Losing the deck lets what is held go**, at once on the cable: a pulled cable means the developer has gone to the
   terminal. A link with a grace (`Link.grace_s`, about 15 s on Wi-Fi) keeps every held request and question that long
   first, and a deck whose hello comes within it gets them again in the snapshot — a hello read after its link closed
@@ -247,7 +245,7 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 | The bridge on Windows (§7): the deck as a COM port, the hooks through Git Bash or PowerShell, the login task | Open `[?]` | The Windows serial back end, run on a Windows PC with the deck attached |
 | A sub-agent's silent `<task-notification>` on Claude Code 2.1.314: `UserPromptSubmit` with that prompt is recorded on 2.1.195 and read from 2.1.314's code, not yet recorded on it | Open `[?]` | One run with `--record` and a background sub-agent |
 | A request answered in the terminal, in a real session: that a deny's `tool_result` reaches the transcript at once, and whether Claude Code stops the held hook, which decides how fast an allow leaves the deck | Open `[?]` | One allow and one deny in the terminal, with a long-running tool |
-| A question answered on the deck in a real session: Claude Code taking `answers` from a `PreToolUse` hook with a multi-select's labels joined, and what a developer pressing Esc during the hold leaves behind | Open `[?]` | One real `AskUserQuestion` with the deck attached |
+| A question answered on the deck in a real session: Claude Code taking `answers` in `updatedInput` from a `PermissionRequest` hook's `allow`, with a multi-select's labels joined, its terminal prompt going as the deck answers; and what pressing Esc on that prompt leaves behind | Open `[?]` | One real `AskUserQuestion` with the deck attached |
 | The plugin end to end: installed from the GitHub marketplace, the bridge started by a hook, stopped by a disable and by an uninstall | Open `[?]` | One install from `alxv2016/alxvlabs-agent-bridge` with the deck attached |
 
 ---

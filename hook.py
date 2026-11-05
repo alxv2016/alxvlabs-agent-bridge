@@ -133,7 +133,7 @@ def main() -> int:
     if plugin and installed_by_hand():
         return 0
     body = sys.stdin.buffer.read()
-    held = b'"PermissionRequest"' in body or (b'"PreToolUse"' in body and b'"AskUserQuestion"' in body)
+    held = b'"PermissionRequest"' in body  # A request or a question, held for the deck's answer
     timeout = REQUEST_TIMEOUT_S if kind == "hook" and held else TIMEOUT_S[kind]
     answer = (post_starting if plugin and kind == "hook" and can_start() else post)(kind, body, timeout)
     if kind == "hook" and answer:

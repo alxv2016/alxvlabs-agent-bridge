@@ -40,7 +40,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hook.py\" hook --plugin",
-            "timeout": 600
+            "timeout": 5
           }
         ]
       }

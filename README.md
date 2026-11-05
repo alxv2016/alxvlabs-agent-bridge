@@ -118,8 +118,8 @@ bottom of a terminal Claude Code session reads `deck | …` while the bridge run
   prompt shows at the same time, and whichever you answer first settles it. Hold the knob to put a request aside and
   answer it later.
 - **Questions Claude asks you** open on the deck too, each option a card. Press the knob to choose, then on Send.
-  Claude Code shows nothing while the deck has a question: hold the knob to hand it to Claude Code at once, for an
-  answer of your own. Left alone it goes there after 30 seconds (`--question-hold`). This needs firmware from the
+  Claude Code asks it in the terminal at the same time, and whichever you answer first settles it; hold the knob to
+  leave it to the terminal alone. This needs firmware from the
   version that added questions; on older firmware they stay in Claude Code. With `install.py`, run it again to
   update the hooks.
 - **Joining your Wi-Fi from the deck**: on the deck's Wi-Fi page, Connect asks the bridge, over the cable, for the
@@ -150,8 +150,7 @@ By hand it prints each update it sends the deck, and the deck's own log lines as
 | Option | Does |
 | --- | --- |
 | `--serial PATH` | The deck's port, when more than one `/dev/cu.usbmodem*` (Linux: `/dev/ttyACM*`) is plugged in |
-| `--hold SECONDS` | How long a request waits for the deck before it is left to Claude Code alone (570) |
-| `--question-hold SECONDS` | How long a question waits for the deck before Claude Code asks it, all its parts together (30) |
+| `--hold SECONDS` | How long a request or a question waits for the deck before it is left to Claude Code alone (570) |
 | `--refresh-usage SECONDS` | How often to ask Claude Code for the plan's usage while the deck is attached (3600; 0 never) |
 | `--context-window TOKENS` | The context window to show a VS Code session's share of, for a model the bridge does not know |
 | `--quiet` | Print no updates, only the bridge's and the deck's own lines |
