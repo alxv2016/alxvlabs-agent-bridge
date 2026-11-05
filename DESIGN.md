@@ -69,6 +69,7 @@ flowchart LR
 | `replay.py`, `scrub.py` | Play a recording into records, or check them against a file — `--context-window N` as the bridge was run; clean a recording for the repo — ids, paths and free text replaced, the shape and timing kept |
 | `test_bridge.py`, `fixtures/` | Every `<name>.inputs.jsonl` replayed into its `<name>.records.jsonl`, the rules one by one, the installer, `hook.py` through a running bridge, the plugin's state and its manifests |
 | `wifi.py` | What the deck's Connect asks macOS (§9): the Wi-Fi device (`networksetup -listallhardwareports`), the networks the Mac has saved on it (`networksetup -listpreferredwirelessnetworks`), the deck's scan crossed with them, and one network's password (`security find-generic-password`), each command run as an argument list with its absolute path, never through a shell |
+| `pairing.py` | Each deck's pairing for the link over Wi-Fi (§9): a login-Keychain item per deck — service `alxvlabs-agent-deck`, account the deck's `id` — holding the shared key the bridge made for it, its host, port and the SHA-256 of its certificate; written through `security -i` on stdin with its data as hex, so the key is never in a process's arguments, and read back with `find-generic-password -w`, the item being the bridge's own, so with no prompt |
 | `plugin_state.py` | Whether the plugin is installed and switched on, from Claude Code's own files: `~/.claude/plugins/installed_plugins.json` and the `enabledPlugins` of each install's scope (§5) |
 | `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json` | The plugin and the marketplace that lists it, both this folder (`"source": "./"`); every event of §3 running `hook.py hook --plugin` (§5) |
 
@@ -282,6 +283,13 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 - **Only the cable's word reads the Keychain.** The bridge takes `wifi_join` and `wifi_pick` only when the link that
   carried them — each link's records reach it with the link (`Bridge.attach()`) — has `kind` `usb`, and drops them
   from any other, so nothing on the network can make the bridge read a password.
+- **Every network sent goes with a new shared key**, 32 random bytes in hex (`key` in the `wifi` record), held in
+  memory until the deck answers or is lost. Joined and serving TLS, the deck sends `wifi_status` on the cable — its
+  `id`, `host` (`agentdeck-<id>.local`), `address`, `port` (8443) and `fingerprint`, the SHA-256 of its certificate —
+  and the bridge keeps the pairing in the Keychain (`pairing.py`): only from a `usb` link, only after a key was sent,
+  and only for the deck whose hello named that `id`. Its log says `paired with the deck <id> at <host>:<port>,
+  certificate <16 hex>…`, never the key. A `wifi_status` with no key sent — a deck rejoining a network it kept — pairs
+  nothing. The link over Wi-Fi that uses the pairing is the next step (the firmware's AGENT_DECK §19.7).
 - **The password is held in memory only, and goes on the cable alone.** The `wifi` record is sent straight to the
   link, not through `emit()`: never on stdout, which is the plugin's log, never in `--record`'s file, which keeps only
   Claude Code's inputs, and so never in `replay.py`'s or `scrub.py`'s. Nothing about a lookup is logged but a failure's

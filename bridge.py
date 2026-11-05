@@ -47,11 +47,13 @@ import os
 import re
 import select
 import socket
+import subprocess
 import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import pairing
 import plugin_state
 import wifi
 from link import USB, Link
@@ -160,6 +162,8 @@ class Bridge:
         self.wifi_thread: threading.Thread | None = None  # The lookup running, or None
         self.wifi_offered: list[str] = []  # The last join's networks the Mac knows: the only ones a pick may name
         self.wifi_secure: dict[str, bool] = {}  # Each scanned network's `secure`, from the last join
+        self.pair_key: str | None = None  # The shared key sent with the last network, until the deck says where it is
+        self.pairing_run = subprocess.run  # What writes the Keychain's pairing item; a fake in the tests
 
     # The deck on the cable --------------------------------------------------------------------------------------
 
@@ -207,6 +211,9 @@ class Bridge:
         # Only the cable's word: nothing on the network may make the bridge read the Keychain (DESIGN.md §9).
         elif r.get("type") in ("wifi_join", "wifi_pick") and getattr(source, "kind", "") == USB:
             (self.wifi_join if r["type"] == "wifi_join" else self.wifi_pick)(r)
+        # Where a paired deck is on the network, from the cable alone: it says which certificate to pin.
+        elif r.get("type") == "wifi_status" and getattr(source, "kind", "") == USB:
+            self.wifi_status(r)
 
     def name_deck(self, r: dict, version: int) -> None:
         """The deck's names from its hello, version 4 on; an older deck has none. Logged as they change."""
@@ -229,6 +236,7 @@ class Bridge:
         §19.3)."""
         with self.wifi_lock:
             self.wifi_offered, self.wifi_secure = [], {}  # A deck back asks again with a scan of its own
+            self.pair_key = None  # And is paired again with the next network it is sent
         grace = getattr(source, "grace_s", 0) or 0
         with self.lock:
             self.lost_count += 1
@@ -320,8 +328,34 @@ class Bridge:
         if password is None:
             self.wifi_send({"type": "wifi_error", "reason": why or wifi.NO_PASSWORD})
             return
+        # A new shared key with every network sent, kept here until the deck says where it is (DESIGN.md §9).
+        key = pairing.new_key()
+        with self.wifi_lock:
+            self.pair_key = key
         # Straight to the cable: not through emit(), whose records reach stdout and the bridge's log.
-        self.wifi_send({"type": "wifi", "name": name, "password": password})
+        self.wifi_send({"type": "wifi", "name": name, "password": password, "key": key})
+
+    def wifi_status(self, r: dict) -> None:
+        """The deck joined and serving TLS: its pairing kept in the Keychain — the key sent with its network, its host,
+        port and certificate fingerprint. Only after a key was sent, and only for the deck that said hello."""
+        deck_id, host, port, fingerprint = r.get("id"), r.get("host"), r.get("port"), r.get("fingerprint")
+        with self.wifi_lock:
+            key = self.pair_key
+        named = self.named or {}
+        if key is None or not isinstance(deck_id, str) or deck_id != named.get("id"):
+            return  # A deck that rejoined by itself, or not the one on the cable: nothing to pair
+        record = {"key": key, "fingerprint": fingerprint, "host": host, "port": port}
+        if not pairing.valid(record):
+            print(f"bridge: the deck {deck_id}'s wifi_status was not a pairing", file=sys.stderr)
+            return
+        if pairing.store(deck_id, record, run=self.pairing_run):
+            with self.wifi_lock:
+                if self.pair_key == key:
+                    self.pair_key = None
+            print(f"bridge: paired with the deck {deck_id} at {host}:{port}, certificate {fingerprint[:16]}…",
+                  file=sys.stderr)
+        else:
+            print(f"bridge: the pairing with the deck {deck_id} was not kept in the Keychain", file=sys.stderr)
 
     def wifi_send(self, record: dict) -> None:
         """A Wi-Fi record to the deck alone, while it is attached: never printed, never recorded."""

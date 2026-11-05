@@ -14,6 +14,7 @@ import glob
 import io
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -29,6 +30,7 @@ sys.path.insert(0, HERE)
 import bridge  # noqa: E402
 import hook  # noqa: E402
 import install  # noqa: E402
+import pairing  # noqa: E402
 import plugin_state  # noqa: E402
 from replay import load, replay  # noqa: E402
 from state import BODY_BYTES, STALE_S, Deck, cut_body, model_name, to_glass  # noqa: E402
@@ -1424,11 +1426,17 @@ class JoinFromTheDeck(unittest.TestCase):
     def bridge(self, fake, record_path=None, out=None):
         sent = []
 
+        keys = self.keys = []
+
         class FakeLink:
             connected = True
             kind = "usb"
 
             def send(self, r):
+                if r.get("type") == "wifi":  # Each network goes with a new key, 64 hex digits: set aside here
+                    r = dict(r)
+                    keys.append(r.pop("key"))
+                    assert re.fullmatch(r"[0-9a-f]{64}", keys[-1])
                 sent.append(r)
                 return True
 
@@ -1564,6 +1572,77 @@ class JoinFromTheDeck(unittest.TestCase):
         self.assertTrue(text.startswith("I (812) usb_line: half a log li@deck "))
         self.assertEqual(serial_link.log_text(b"I (1) boot: a log line\r"), "I (1) boot: a log line")
 
+
+    def paired(self, keychain_ok=True):
+        """A deck that said hello, sent one network and its key; and what the Keychain's `security` was given."""
+        b, sent = self.bridge(FakeMacOS())
+        calls = []
+
+        def run(argv, **kw):
+            calls.append((argv, kw.get("input")))
+            return subprocess.CompletedProcess(argv, 0, "", "" if keychain_ok else "security: refused\n")
+
+        b.pairing_run = run
+        with contextlib.redirect_stderr(io.StringIO()):
+            b.link.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "usb"})
+        b.link.on_record(scan(("Studio", -48, True)))
+        self.settle(b)
+        return b, sent, calls
+
+    STATUS = {"type": "wifi_status", "id": "3f2a", "host": "agentdeck-3f2a.local", "address": "192.168.1.42",
+              "port": 8443, "fingerprint": "ab" * 32}
+
+    def test_the_deck_says_where_it_is_and_the_pairing_is_kept(self):
+        b, _, calls = self.paired()
+        key = self.keys[-1]
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            b.link.on_record(dict(self.STATUS))
+        self.assertIn("paired with the deck 3f2a at agentdeck-3f2a.local:8443, certificate abababababababab…",
+                      err.getvalue())
+        argv, stdin = calls[-1]
+        self.assertEqual(argv, [pairing.SECURITY, "-i"])
+        self.assertNotIn(key, " ".join(argv))  # never in a process's arguments
+        data = bytes.fromhex(stdin.split(" -X ")[1].split()[0])
+        self.assertEqual(json.loads(data), {"key": key, "fingerprint": "ab" * 32, "host": "agentdeck-3f2a.local",
+                                            "port": 8443})
+        self.assertIn("-s alxvlabs-agent-deck -a 3f2a", stdin)
+        self.assertNotIn(key, err.getvalue())
+        self.assertIsNone(b.pair_key)
+
+    def test_no_pairing_without_a_key_sent_or_from_another_deck_or_off_the_cable(self):
+        b, _, calls = self.paired()
+        n = len(calls)
+        with contextlib.redirect_stderr(io.StringIO()):
+            b.link.on_record({**self.STATUS, "id": "beef"})                 # not the deck that said hello
+            b.on_record(dict(self.STATUS), source=type("W", (), {"kind": "wifi", "connected": True})())
+            b.link.on_record({**self.STATUS, "fingerprint": "AB" * 32})     # not a fingerprint
+        self.assertEqual(len(calls), n)
+        b.pair_key = None
+        b.link.on_record(dict(self.STATUS))                                 # a rejoin with no key sent
+        self.assertEqual(len(calls), n)
+
+    def test_a_pairing_the_keychain_refuses_is_said_and_the_key_kept_for_another_try(self):
+        b, _, _ = self.paired(keychain_ok=False)
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            b.link.on_record(dict(self.STATUS))
+        self.assertIn("was not kept in the Keychain", err.getvalue())
+        self.assertIsNotNone(b.pair_key)
+
+    def test_losing_the_deck_drops_the_key_sent(self):
+        b, _, _ = self.paired()
+        b.link.on_lost()
+        self.assertIsNone(b.pair_key)
+
+    def test_a_pairing_reads_back_from_the_keychain(self):
+        record = {"key": "cd" * 32, "fingerprint": "ab" * 32, "host": "agentdeck-3f2a.local", "port": 8443}
+
+        def run(argv, **kw):
+            self.assertEqual(argv, [pairing.SECURITY, "find-generic-password", "-s", pairing.SERVICE, "-a", "3f2a", "-w"])
+            return subprocess.CompletedProcess(argv, 0, json.dumps(record) + "\n", "")
+
+        self.assertEqual(pairing.load("3f2a", run=run), record)
+        self.assertIsNone(pairing.load("3F2A", run=run))
+        self.assertIsNone(pairing.load("3f2a", run=lambda a, **k: subprocess.CompletedProcess(a, 44, "", "")))
 
 class EndToEnd(unittest.TestCase):
     def forward(self, port, kind, data):
