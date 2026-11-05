@@ -1603,7 +1603,7 @@ class JoinFromTheDeck(unittest.TestCase):
               "port": 8443, "fingerprint": "ab" * 32}
 
     def test_the_deck_says_where_it_is_and_the_pairing_is_kept(self):
-        b, _, calls = self.paired()
+        b, sent, calls = self.paired()
         key = self.keys[-1]
         with contextlib.redirect_stderr(io.StringIO()) as err:
             b.link.on_record(dict(self.STATUS))
@@ -1616,6 +1616,7 @@ class JoinFromTheDeck(unittest.TestCase):
         self.assertEqual(json.loads(data), {"key": key, "fingerprint": "ab" * 32, "host": "agentdeck-3f2a.local",
                                             "port": 8443})
         self.assertIn("-s alxvlabs-agent-deck -a 3f2a", stdin)
+        self.assertEqual(sent[-1], {"type": "wifi_paired"})  # the deck's page leaves its bridge step
         self.assertNotIn(key, err.getvalue())
         self.assertIsNone(b.pair_key)
 
@@ -1632,11 +1633,12 @@ class JoinFromTheDeck(unittest.TestCase):
         self.assertEqual(len(calls), n)
 
     def test_a_pairing_the_keychain_refuses_is_said_and_the_key_kept_for_another_try(self):
-        b, _, _ = self.paired(keychain_ok=False)
+        b, sent, _ = self.paired(keychain_ok=False)
         with contextlib.redirect_stderr(io.StringIO()) as err:
             b.link.on_record(dict(self.STATUS))
         self.assertIn("was not kept in the Keychain", err.getvalue())
         self.assertIsNotNone(b.pair_key)
+        self.assertNotIn({"type": "wifi_paired"}, sent)
 
     def test_losing_the_deck_drops_the_key_sent(self):
         b, _, _ = self.paired()
@@ -1720,14 +1722,17 @@ class OverWifi(unittest.TestCase):
                 return True
 
         class Net(Cable):
-            kind = "wifi"
+            kind, grace_s = "wifi", 0.3
 
             def __init__(self):
                 super().__init__()
-                self.paused = []
+                self.paused, self.paired = [], True
 
             def pause(self, p):
                 self.paused.append(p)
+
+            def reachable(self):
+                return self.paired
 
         b = bridge.Bridge(None, io.StringIO(), hold_s=5)
         cable, net = Cable(), Net()
@@ -1759,6 +1764,33 @@ class OverWifi(unittest.TestCase):
         b.decide(1, True)
         t.join(2)
         self.assertEqual(result["answer"], "allow")
+
+    def test_the_cable_pulled_keeps_what_is_held_for_the_deck_back_on_wifi(self):
+        b, cable, net = self.links()
+        cable.on_open()
+        t, result = Hold().held(b)
+        cable.on_lost()  # unplugged to leave the desk: the Wi-Fi link's grace, not the cable's none
+        t.join(0.1)
+        self.assertTrue(t.is_alive())
+        net.on_open()
+        with contextlib.redirect_stderr(io.StringIO()):
+            net.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "wifi"})
+        self.assertIn("request", [r["type"] for r in net.sent])  # back on the glass over Wi-Fi
+        t.join(0.4)
+        self.assertTrue(t.is_alive())  # past the grace: the deck came back in it
+        net.on_record({"type": "decision", "id": 1, "allow": True})
+        t.join(2)
+        self.assertEqual(result["answer"], "allow")
+
+    def test_the_cable_pulled_with_no_deck_paired_lets_what_is_held_go(self):
+        b, cable, net = self.links()
+        net.paired = False
+        cable.on_open()
+        t, result = Hold().held(b)
+        cable.on_lost()
+        t.join(2)
+        self.assertFalse(t.is_alive())
+        self.assertIsNone(result["answer"])
 
     def test_a_session_against_a_stand_in_deck(self):
         if shutil.which("openssl") is None:

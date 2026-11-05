@@ -261,6 +261,12 @@ class Bridge:
             self.wifi_offered, self.wifi_secure = [], {}  # A deck back asks again with a scan of its own
             self.pair_key = None  # And is paired again with the next network it is sent
         grace = getattr(source, "grace_s", 0) or 0
+        if getattr(source, "kind", "") == USB:
+            # The cable pulled to leave the desk: a deck paired for Wi-Fi gets that link's grace to come back on it,
+            # what is held kept for it (the firmware's AGENT_DECK §19.3).
+            for other in self.links:
+                if other is not source and hasattr(other, "reachable") and other.reachable():
+                    grace = max(grace, getattr(other, "grace_s", 0) or 0)
         with self.lock:
             self.lost_count += 1
             count, held = self.lost_count, list(self.waiting)
@@ -375,6 +381,7 @@ class Bridge:
             with self.wifi_lock:
                 if self.pair_key == key:
                     self.pair_key = None
+            self.wifi_send({"type": "wifi_paired"})  # The deck's page leaves its bridge step
             print(f"bridge: paired with the deck {deck_id} at {host}:{port}, certificate {fingerprint[:16]}…",
                   file=sys.stderr)
         else:

@@ -73,6 +73,10 @@ class NetLink(Link):
     def connected(self) -> bool:
         return self.sock is not None
 
+    def reachable(self) -> bool:
+        """Whether a deck is paired, so this link may reach it once the cable goes."""
+        return bool(self.pairings())
+
     def pause(self, paused: bool) -> None:
         """A deck on the cable: this link stands down, its session closed; False: it looks for the deck again."""
         self.paused = paused

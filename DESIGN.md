@@ -265,6 +265,7 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 | `wifi_choose` | Bridge | `names`, `rssi`: the scanned networks the Mac has saved, when there are several, in the deck's order with its signals |
 | `wifi_pick` | Deck | `name`: the one picked with the knob |
 | `wifi` | Bridge | `name`, `password`, `key`: the network to join, `""` for an open one, `secure` false in the scan; and the pairing's shared key, 64 hex digits, new with every network sent |
+| `wifi_paired` | Bridge | No fields: the pairing kept in the Keychain, after a `wifi_status`; the deck's page leaves its bridge step |
 | `wifi_status` | Deck | `id`, `host`, `address`, `port`, `fingerprint`: where a paired deck serving TLS is, and its certificate's SHA-256 to pin; kept in the Keychain only after a key was sent |
 | `wifi_error` | Bridge | `reason`: `not_in_reach` — no scanned network saved on the Mac, or a pick never offered; `cancelled` — the admin prompt cancelled, refused or left 120 s; `no_password` — no Keychain item, or any other failure |
 
@@ -295,7 +296,9 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 - **The deck is reached over Wi-Fi once paired** (`net_link.py`): with no deck on the cable the link looks for the last
   deck paired and, the session answered, becomes the bridge's link — records, pings and acks go on it, and a hello
   over it says `link: "wifi"`. A deck opening on the cable makes the cable the bridge's link and stands the Wi-Fi link
-  down; losing the cable lets it look again. A link the deck was not on going lets nothing held go. Nothing that
+  down; losing the cable lets it look again. A link the deck was not on going lets nothing held go. Losing the cable
+  with a deck paired for Wi-Fi waits the Wi-Fi link's grace (`GRACE_S`, 15 s) before letting what is held go, so a deck
+  unplugged to leave the desk gets them back over Wi-Fi in the snapshot. Nothing that
   reaches the bridge over Wi-Fi can make it read the Keychain: `wifi_join`, `wifi_pick` and `wifi_status` are taken
   from the cable alone.
 - **The password is held in memory only, and goes on the cable alone.** The `wifi` record is sent straight to the
