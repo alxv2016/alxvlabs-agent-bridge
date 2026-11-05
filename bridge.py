@@ -53,6 +53,7 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import hook
 import pairing
 import plugin_state
 import wifi
@@ -80,6 +81,7 @@ MAX_SCAN = 10  # The networks a wifi_join carries at most; past them the scan is
 GONE_POLL_S = 0.25  # How often a held hook is looked at, to see whether Claude Code still waits on it
 ORPHAN_MARK = ".orphaned_at"  # Claude Code's mark on a version's folder an update has left behind
 UPDATED = "a newer version of the plugin is installed"
+FOLDER_GONE = "the plugin's folder is gone (updated or uninstalled)"
 PLUGIN_CHECK_S = 10  # How often a bridge the plugin started looks whether the plugin is still installed and on
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -118,7 +120,7 @@ class PluginWatch:
     def gone(self) -> str | None:
         """Why the bridge should stop, or None."""
         if not os.path.isdir(self.folder):
-            return "the plugin's folder is gone (updated or uninstalled)"
+            return FOLDER_GONE
         listed = plugin_state.installs(self.name, self.claude_dir)
         if listed is None:
             return None
@@ -133,6 +135,20 @@ class PluginWatch:
         if self.replaced():
             return UPDATED
         return None
+
+
+def successor(why: str, name: str, own: str = HERE, claude_dir: str = plugin_state.CLAUDE_DIR) -> str | None:
+    """The folder whose bridge takes over from one stopping for `why`, or None: an update hands the deck to the new
+    version at once, not at the next hook, which may be long in coming (DESIGN.md §5). A plugin disabled or
+    uninstalled hands over to nothing."""
+    if why not in (UPDATED, FOLDER_GONE):
+        return None
+    if not plugin_state.installed(name, claude_dir) or not plugin_state.enabled(name, claude_dir):
+        return None
+    folder = plugin_state.current_folder(name, own, claude_dir)
+    if os.path.realpath(folder) == os.path.realpath(own) or not os.path.isfile(os.path.join(folder, "bridge.py")):
+        return None
+    return folder
 
 
 class Bridge:
@@ -675,6 +691,7 @@ def main() -> int:
                   file=sys.stderr)
     server.RequestHandlerClass = handler(bridge)
     watch = PluginWatch(args.plugin) if args.plugin else None
+    stopped: dict[str, str] = {}
 
     def ticker():
         beat = 0
@@ -692,6 +709,7 @@ def main() -> int:
                 why = None  # Not out from under an answer: the next look finds the request settled
             if why:
                 print(f"bridge: {why}; stopping", file=sys.stderr)
+                stopped["why"] = why
                 server.shutdown()
                 return
 
@@ -703,6 +721,18 @@ def main() -> int:
     except KeyboardInterrupt:
         pass
     server.server_close()
+    folder = successor(stopped.get("why", ""), args.plugin) if args.plugin else None
+    if folder is not None:
+        # The port and the cable let go first, so the new bridge takes both at once.
+        for link in bridge.links:
+            if isinstance(link, SerialLink):
+                link.stopping = True
+                link.close()
+        try:
+            hook.start_bridge(folder)
+            print(f"bridge: started the new version from {folder}; it takes the deck from here", file=sys.stderr)
+        except OSError as e:
+            print(f"bridge: could not start the new version ({e}); the next hook will", file=sys.stderr)
     return 0
 
 

@@ -38,7 +38,8 @@ sessions. Its log is `~/Library/Logs/agent-deck-bridge.log`.
   alxvlabs-agent-deck@alxvlabs`: the bridge notices within about ten seconds and stops.
 - **Update** with `/plugin marketplace update alxvlabs`, then `/plugin update alxvlabs-agent-deck@alxvlabs`, and
   restart your Claude Code sessions so they load the new hooks. From 0.2.1 on the running bridge notices the update
-  within about ten seconds, finishes any request it holds, and stops, and the next hook starts the new version.
+  within about ten seconds, finishes any request it holds, and stops; from 0.2.17 it starts the new version itself as
+  it goes, so the deck reconnects without waiting for a session to do something.
 - **Updating from 0.2.0 or earlier** needs one manual step, as those versions keep running after an update. Quit
   every Claude Code session first, or one still running the old hooks starts the old bridge again. Then, in a
   terminal, stop the old bridge; the first hook of a new session starts the new one:

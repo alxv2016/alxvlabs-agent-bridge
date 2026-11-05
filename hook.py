@@ -70,14 +70,14 @@ def log_path() -> str:
     return os.path.join(os.path.expanduser(base), "agent-deck-bridge.log")
 
 
-def start_bridge() -> None:
+def start_bridge(folder: str | None = None) -> None:
     """The bridge, detached: its own session, no terminal, so it runs on after this hook and its session end. Two
     hooks starting one each at once is harmless: the second cannot take the port and goes."""
     path = log_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
     # The installed version's, not this file's: a session opened before an update still runs the old hook.py.
-    folder = plugin_state.current_folder(PLUGIN, HERE)
+    folder = folder or plugin_state.current_folder(PLUGIN, HERE)
     with open(path, "ab") as log:
         subprocess.Popen([sys.executable, os.path.join(folder, "bridge.py"), "--quiet", "--plugin", PLUGIN],
                          cwd=folder, env=env, stdin=subprocess.DEVNULL, stdout=log, stderr=log,

@@ -812,6 +812,21 @@ class Plugin(unittest.TestCase):
                 f.write("{ half written")
             self.assertIsNone(watch.gone())
 
+    def test_an_updated_bridge_hands_the_deck_to_the_new_version(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as old, \
+                tempfile.TemporaryDirectory() as new:
+            open(os.path.join(new, "bridge.py"), "w").close()
+            d = self.install(tmp, new)
+            self.assertEqual(bridge.successor(bridge.UPDATED, hook.PLUGIN, old, d), os.path.realpath(new))
+            self.assertEqual(bridge.successor(bridge.FOLDER_GONE, hook.PLUGIN, old, d), os.path.realpath(new))
+            self.assertIsNone(bridge.successor(bridge.UPDATED, hook.PLUGIN, new, d))  # it is the new one
+            self.claude_dir(tmp, user={"enabledPlugins": {self.KEY: False}})
+            self.assertIsNone(bridge.successor(bridge.UPDATED, hook.PLUGIN, old, d))  # switched off: nothing
+            self.claude_dir(tmp, user={"enabledPlugins": {self.KEY: True}})
+            self.assertIsNone(bridge.successor("the plugin was disabled", hook.PLUGIN, old, d))
+            os.remove(os.path.join(new, "bridge.py"))
+            self.assertIsNone(bridge.successor(bridge.UPDATED, hook.PLUGIN, old, d))  # nothing there to start
+
     def test_a_held_request_keeps_an_updated_bridge_until_it_settles(self):
         b = bridge.Bridge(None, io.StringIO(), hold_s=5)
         self.assertFalse(b.holding())

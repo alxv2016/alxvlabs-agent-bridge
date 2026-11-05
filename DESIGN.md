@@ -186,7 +186,10 @@ same `hook.py` and `bridge.py`.
 - **An update replaces a running bridge.** Claude Code keeps the old version's folder, marked `.orphaned_at`, beside
   the new one `[R]` 2026-10-30, so a folder still there says nothing: the bridge goes once `installed_plugins.json`
   no longer lists its folder, having listed it, or its folder carries the mark. It waits for any request it holds, so
-  no answer is cut off, and the next hook starts the new code. A hook starts the listed version's `bridge.py`, not
+  no answer is cut off, then lets go of the port and the cable and starts the listed version's `bridge.py` itself
+  (`successor()`), so the deck is back within about `PLUGIN_CHECK_S` (10 s) of the update — the developer's ask,
+  2026-11-05: waiting for the next hook left the deck with no bridge until a session did something. A plugin disabled
+  or uninstalled starts nothing. A hook starts the listed version's `bridge.py`, not
   its own folder's, as a session opened before the update still runs the old `hook.py`. A folder never listed and
   never marked is `claude --plugin-dir`'s, and stays. Versions before 0.2.1 do none of this, so leaving one takes a
   manual `kill`, as the README says.
