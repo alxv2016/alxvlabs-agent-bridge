@@ -28,6 +28,9 @@ from link import WIFI, Link, decode, encode
 
 GRACE_S = 15.0       # what is held outlives a short drop this long (AGENT_DECK §19.3)
 RETRY_S = 5.0        # a deck not found, or a session lost, tried again this often
+SETTLE_S = 2.0       # let loose by the cable going, this link waits this long first: a cable plugged in can open, close
+                     # and open again within about 100 ms (the firmware's AGENT_DECK §14), which would otherwise make a
+                     # session for the moment between, ended at once as the cable opens again
 CONNECT_S = 10.0     # the TCP connect and the TLS handshake; a dimmed deck runs slower (AGENT_DECK §14)
 AUTH_S = 10.0        # the challenge, from the handshake done
 POLL_S = 0.05        # how long the thread waits on the socket before it sends what is queued
@@ -69,6 +72,7 @@ class NetLink(Link):
         self.stopping = False
         self.standby = lambda: False  # Whether another link has the deck now: the bridge sets it as it attaches this
         self.wake = threading.Event()
+        self.settle_until = 0.0  # time.monotonic() before which this link, let loose, does not connect
 
     @property
     def connected(self) -> bool:
@@ -79,7 +83,10 @@ class NetLink(Link):
         return bool(self.pairings())
 
     def pause(self, paused: bool) -> None:
-        """A deck on the cable: this link stands down, its session closed; False: it looks for the deck again."""
+        """A deck on the cable: this link stands down, its session closed; False: it looks for the deck again, once the
+        cable has stayed gone SETTLE_S."""
+        if self.paused and not paused:
+            self.settle_until = time.monotonic() + SETTLE_S
         self.paused = paused
         self.wake.set()
 
@@ -191,6 +198,11 @@ class NetLink(Link):
         while not self.stopping:
             if self.paused or self.standby():
                 self.wake.wait(RETRY_S)
+                self.wake.clear()
+                continue
+            settle = self.settle_until - time.monotonic()
+            if settle > 0:
+                self.wake.wait(settle)  # a pause() in the wait wakes it: the cable back, this link stands down again
                 self.wake.clear()
                 continue
             ids = self.pairings()

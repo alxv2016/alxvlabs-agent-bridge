@@ -1895,6 +1895,35 @@ class OverWifi(unittest.TestCase):
             link.pause(True)
             listener.close()
 
+    def test_the_wifi_link_waits_for_the_cable_to_stay_gone(self):
+        # A cable plugged in can open, close and open again in about 100 ms: let loose by the close, the link waits
+        # SETTLE_S before it connects, and the cable back in that time stands it down with no session made.
+        tries = []
+        link = net_link.NetLink(lambda: ["3f2a"], lambda i: None)
+        link.connect = lambda deck_id, record: tries.append(time.monotonic())
+        link.load = lambda i: {"host": "x"}
+        saved = net_link.SETTLE_S
+        net_link.SETTLE_S = 0.3
+        try:
+            link.paused = True
+            link.start()
+            link.pause(False)  # the cable closed
+            time.sleep(0.1)
+            link.pause(True)   # and opened again within the wait
+            time.sleep(0.5)
+            self.assertEqual(tries, [])  # no session for the flap
+            let_loose = time.monotonic()
+            link.pause(False)  # the cable gone for good
+            for _ in range(100):
+                if tries:
+                    break
+                time.sleep(0.02)
+            self.assertTrue(tries and tries[0] - let_loose >= 0.25)  # looked for the deck only once settled
+        finally:
+            net_link.SETTLE_S = saved
+            link.stopping = True
+            link.pause(True)
+
     def test_a_deck_serving_another_certificate_is_not_connected(self):
         link = net_link.NetLink(lambda: [], lambda i: None)
         record = {"key": self.KEY, "fingerprint": "00" * 32, "host": "127.0.0.1", "port": 9}
