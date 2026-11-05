@@ -56,7 +56,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pairing
 import plugin_state
 import wifi
-from link import USB, Link
+from link import USB, WIFI, Link
+from net_link import NetLink
 from serial_link import SerialLink
 from state import Deck
 from transcripts import Transcripts
@@ -153,7 +154,8 @@ class Bridge:
         self.out = out
         self.quiet = quiet  # no record on stdout: a login agent's log stays small
         self.record = open(record_path, "a", encoding="utf-8") if record_path else None
-        self.link: Link | None = None
+        self.link: Link | None = None   # The link the deck talks on now: the last to open, the cable first
+        self.links: list[Link] = []
         self.named: dict | None = None  # The attached deck's `id`, `board` and `link`, from a version 4 hello
         self.said = ""  # What the log last said of the deck's names
         self.lost_count = 0  # Each loss and each hello counts one: a grace let go only if nothing came since
@@ -168,19 +170,31 @@ class Bridge:
     # The deck on the cable --------------------------------------------------------------------------------------
 
     def attach(self, link: Link) -> None:
-        """The link the deck talks on. Its records and its loss come back with the link that carried them: only the
-        cable's word reads the Keychain, and only the link that lost the deck says how long to wait for it."""
-        self.link = link
+        """A link the deck may talk on, the first the bridge's link until another opens. Its records, its opening and
+        its loss come back with the link: only the cable's word reads the Keychain, and only the link the deck was on
+        says how long to wait for it."""
+        self.links.append(link)
+        if self.link is None:
+            self.link = link
         link.on_record = functools.partial(self.on_record, source=link)
+        link.on_open = functools.partial(self.on_open, source=link)
         link.on_lost = functools.partial(self.on_lost, source=link)
 
     def device_ready(self) -> bool:
         return self.link is not None and self.link.connected
 
-    def on_open(self) -> None:
-        """The port opened: asks the deck to say hello. It may still be booting and miss this — then its own hello at
-        start does the asking — so the snapshot waits for the deck's hello, sent once it listens."""
-        self.link.send({"type": "hello"})
+    def on_open(self, source: Link | None = None) -> None:
+        """A link opened to the deck: it is the bridge's link now, and asks the deck to say hello. The deck may still
+        be booting and miss this — then its own hello at start does the asking — so the snapshot waits for the deck's
+        hello, sent once it listens. The cable wins: a deck on it stands the Wi-Fi link down (AGENT_DECK §19.3)."""
+        source = source if source is not None else self.link
+        with self.lock:
+            self.link = source
+        if getattr(source, "kind", "") == USB:
+            for other in self.links:
+                if other is not source and hasattr(other, "pause"):
+                    other.pause(True)
+        source.send({"type": "hello"})
 
     def send_snapshot(self) -> None:
         with self.lock:
@@ -216,7 +230,8 @@ class Bridge:
             self.wifi_status(r)
 
     def name_deck(self, r: dict, version: int) -> None:
-        """The deck's names from its hello, version 4 on; an older deck has none. Logged as they change."""
+        """The deck's names from its hello, version 4 on; an older deck has none. Logged as they change. A deck the
+        Keychain holds a pairing for is remembered as paired, for the link over Wi-Fi to look for it."""
         fields = ("id", "board", "link")
         named = None
         if version >= NAMED_VERSION and all(isinstance(r.get(f), str) and HELLO_FIELD.fullmatch(r[f]) for f in fields):
@@ -229,11 +244,19 @@ class Bridge:
         if said != self.said:
             self.said = said  # Once a change: a reconnect, a reset or a /release says the same again
             print(f"bridge: the deck says hello {version}, {said}", file=sys.stderr)
+            if named and named["id"] not in pairing.paired() and pairing.load(named["id"], run=self.pairing_run):
+                pairing.remember(named["id"])
 
     def on_lost(self, source: Link | None = None) -> None:
         """The deck gone — unplugged, reset, or the port lent out. On the cable nothing will answer what is held, so
         it goes back at once; on a link with a grace it is kept that long for the deck to come back (AGENT_DECK
-        §19.3)."""
+        §19.3). A link the deck was not on going changes nothing."""
+        if source is not None and self.link is not None and source is not self.link:
+            return
+        if getattr(source, "kind", "") == USB:
+            for other in self.links:
+                if other is not source and hasattr(other, "pause"):
+                    other.pause(False)  # Off the cable: the Wi-Fi link looks for the deck
         with self.wifi_lock:
             self.wifi_offered, self.wifi_secure = [], {}  # A deck back asks again with a scan of its own
             self.pair_key = None  # And is paired again with the next network it is sent
@@ -561,9 +584,10 @@ def handler(bridge: Bridge):
                 self.send_error(400)
                 return
             seconds = max(0.0, min(seconds, MAX_RELEASE_S))
-            if bridge.link is not None:
-                bridge.link.release(seconds)
-            body = json.dumps({"released_s": seconds if bridge.link is not None else 0}).encode()
+            cables = [link for link in bridge.links if getattr(link, "kind", "") == USB]
+            for link in cables:
+                link.release(seconds)
+            body = json.dumps({"released_s": seconds if cables else 0}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -615,8 +639,12 @@ def main() -> int:
     if not args.no_serial:
         link = SerialLink(None, bridge.on_open, on_log=lambda line: print(f"board: {line}", file=sys.stderr),
                           port=args.serial)
-        bridge.attach(link)  # Its records and its loss, told with the link
+        bridge.attach(link)  # Its records, opening and loss, told with the link
         link.start()
+        # The link over Wi-Fi, to a deck paired on the cable: standing down while a deck is on the cable.
+        net = NetLink(pairing.paired, pairing.load, on_log=lambda line: print(f"bridge: {line}", file=sys.stderr))
+        bridge.attach(net)
+        net.start()
         if not args.no_usage_cache and UsageRefresh(args.refresh_usage, bridge.device_ready).start():
             print(f"bridge: refreshing the plan's usage every {args.refresh_usage:g} s while the deck is attached",
                   file=sys.stderr)

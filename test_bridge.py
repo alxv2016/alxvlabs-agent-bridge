@@ -12,6 +12,10 @@ from __future__ import annotations
 import contextlib
 import glob
 import io
+import ssl
+import shutil
+import hmac
+import hashlib
 import json
 import os
 import re
@@ -39,6 +43,10 @@ from usage_cache import UsageCache  # noqa: E402
 from usage_refresh import UsageRefresh  # noqa: E402
 import serial_link  # noqa: E402
 import wifi  # noqa: E402
+import net_link  # noqa: E402
+
+# The paired decks' ids in a scratch file: a test never writes the developer's own.
+pairing.IDS_PATH = os.path.join(tempfile.mkdtemp(prefix="bridge-test-"), "paired.json")
 
 
 def h(event, sid="s1", cwd="/Users/dev/web-shop", **kw):
@@ -1284,8 +1292,10 @@ class Link(unittest.TestCase):
             self.skipTest(f"no pseudo-terminal here: {e}")
         b = bridge.Bridge(None, io.StringIO())
         opened = threading.Event()
-        link = serial_link.SerialLink(b.on_record, opened.set, port=os.ttyname(slave))
+        link = serial_link.SerialLink(b.on_record, None, port=os.ttyname(slave))
         b.attach(link)
+        bridge_open = link.on_open  # attach() binds the link's opening to the bridge: told here as well
+        link.on_open = lambda: (bridge_open(), opened.set())
         link.start()
         filler = os.open(os.ttyname(slave), os.O_WRONLY | os.O_NOCTTY | os.O_NONBLOCK)
         try:
@@ -1673,6 +1683,139 @@ class EndToEnd(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout, r.stderr), (0, "", ""))
         r = self.forward(port, "status", {})
         self.assertEqual(r.stdout.strip(), "deck off")
+
+
+
+class OverWifi(unittest.TestCase):
+    """The link over Wi-Fi (net_link.py): the challenge's answer, the pin, the bridge's two links, and a session against
+    a stand-in deck — a local TLS server with a throwaway certificate."""
+
+    KEY = "cd" * 32
+
+    def test_the_answer_is_the_hmac_of_the_nonce_under_the_key(self):
+        nonce = bytes(range(32))
+        reply = net_link.answer(b"agentdeck-challenge " + nonce.hex().encode(), self.KEY)
+        want = hmac.new(bytes.fromhex(self.KEY), nonce, hashlib.sha256).hexdigest()
+        self.assertEqual(reply, b"agentdeck-answer " + want.encode() + b"\n")
+        for bad in (b"agentdeck-challenge 00", b"agentdeck-challenge " + b"zz" * 32, b"hello"):
+            self.assertIsNone(net_link.answer(bad, self.KEY))
+        self.assertIsNone(net_link.answer(b"agentdeck-challenge " + nonce.hex().encode(), "00"))
+
+    def test_only_the_certificate_paired_is_taken(self):
+        der = b"certificate"
+        self.assertTrue(net_link.pinned(der, hashlib.sha256(der).hexdigest()))
+        self.assertFalse(net_link.pinned(der, "00" * 32))
+        self.assertFalse(net_link.pinned(None, hashlib.sha256(der).hexdigest()))
+
+    @staticmethod
+    def links():
+        class Cable:  # a SerialLink: it stands down for nothing
+            connected, kind = True, "usb"
+
+            def __init__(self):
+                self.sent = []
+
+            def send(self, r):
+                self.sent.append(r)
+                return True
+
+        class Net(Cable):
+            kind = "wifi"
+
+            def __init__(self):
+                super().__init__()
+                self.paused = []
+
+            def pause(self, p):
+                self.paused.append(p)
+
+        b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+        cable, net = Cable(), Net()
+        b.attach(cable)
+        b.attach(net)
+        return b, cable, net
+
+    def test_the_cable_wins_and_the_wifi_link_stands_down_while_it_is_there(self):
+        b, cable, net = self.links()
+        self.assertIs(b.link, cable)
+        net.on_open()
+        self.assertIs(b.link, net)
+        self.assertEqual(net.sent, [{"type": "hello"}])
+        cable.on_open()
+        self.assertIs(b.link, cable)
+        self.assertEqual(net.paused, [True])
+        net.on_lost()  # the Wi-Fi session ending as it stands down: nothing held is let go
+        self.assertIs(b.link, cable)
+        cable.on_lost()
+        self.assertEqual(net.paused, [True, False])
+
+    def test_a_loss_off_the_link_in_use_lets_nothing_go(self):
+        b, cable, net = self.links()
+        cable.on_open()
+        t, result = Hold().held(b)
+        net.on_lost()
+        t.join(0.3)
+        self.assertTrue(t.is_alive())
+        b.decide(1, True)
+        t.join(2)
+        self.assertEqual(result["answer"], "allow")
+
+    def test_a_session_against_a_stand_in_deck(self):
+        if shutil.which("openssl") is None:
+            self.skipTest("no openssl to make a throwaway certificate")
+        folder = tempfile.mkdtemp(prefix="bridge-tls-")
+        cert, key = os.path.join(folder, "c.pem"), os.path.join(folder, "k.pem")
+        made = subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                               "-nodes", "-keyout", key, "-out", cert, "-days", "1", "-subj", "/CN=agentdeck"],
+                              capture_output=True)
+        if made.returncode != 0:
+            self.skipTest("openssl could not make a certificate here")
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, key)
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(1)
+        port = listener.getsockname()[1]
+        der = ssl.PEM_cert_to_DER_cert(open(cert).read())
+        heard = []
+
+        def deck(answer_key):
+            conn, _ = listener.accept()
+            with context.wrap_socket(conn, server_side=True) as tls:
+                nonce = os.urandom(32)
+                tls.sendall(b"agentdeck-challenge " + nonce.hex().encode() + b"\n")
+                line = tls.recv(256).strip()
+                want = hmac.new(bytes.fromhex(answer_key), nonce, hashlib.sha256).hexdigest().encode()
+                if line != b"agentdeck-answer " + want:
+                    return
+                tls.sendall(b"agentdeck-ok\n" + serial_link.encode({"type": "hello", "version": 4}))
+                heard.append(tls.recv(4096))
+
+        record = {"key": self.KEY, "fingerprint": hashlib.sha256(der).hexdigest(), "host": "127.0.0.1", "port": port}
+        got, opened = [], threading.Event()
+        link = net_link.NetLink(lambda: ["3f2a"], lambda i: record, on_record=got.append, on_open=opened.set)
+        server = threading.Thread(target=deck, args=(self.KEY,), daemon=True)
+        server.start()
+        link.start()
+        try:
+            self.assertTrue(opened.wait(10))
+            for _ in range(100):
+                if got:
+                    break
+                time.sleep(0.02)
+            self.assertEqual(got, [{"type": "hello", "version": 4}])  # the line right after the ok, not lost
+            link.send({"type": "ping"})
+            server.join(5)
+            self.assertEqual(heard, [serial_link.encode({"type": "ping"})])
+        finally:
+            link.stopping = True
+            link.pause(True)
+            listener.close()
+
+    def test_a_deck_serving_another_certificate_is_not_connected(self):
+        link = net_link.NetLink(lambda: [], lambda i: None)
+        record = {"key": self.KEY, "fingerprint": "00" * 32, "host": "127.0.0.1", "port": 9}
+        self.assertIsNone(link.connect("3f2a", record))  # nothing there: not connected, and nothing raised
 
 
 if __name__ == "__main__":
