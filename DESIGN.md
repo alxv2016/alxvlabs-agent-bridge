@@ -296,7 +296,9 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 - **The deck is reached over Wi-Fi once paired** (`net_link.py`): with no deck on the cable the link looks for the last
   deck paired and, the session answered, becomes the bridge's link — records, pings and acks go on it, and a hello
   over it says `link: "wifi"`. A deck opening on the cable makes the cable the bridge's link and stands the Wi-Fi link
-  down; losing the cable lets it look again. A link the deck was not on going lets nothing held go. Losing the cable
+  down; losing the cable lets it look again. A link the deck was not on going lets nothing held go. While the cable is
+  open the Wi-Fi link neither connects nor, connecting as the cable opens, takes over; the link in use lost with another
+  still open falls back to it, the deck asked to say hello there; and a hello on the cable makes it the link. Losing the cable
   with a deck paired for Wi-Fi waits the Wi-Fi link's grace (`GRACE_S`, 15 s) before letting what is held go, so a deck
   unplugged to leave the desk gets them back over Wi-Fi in the snapshot. Nothing that
   reaches the bridge over Wi-Fi can make it read the Keychain: `wifi_join`, `wifi_pick` and `wifi_status` are taken

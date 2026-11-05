@@ -176,9 +176,15 @@ class Bridge:
         self.links.append(link)
         if self.link is None:
             self.link = link
+        if hasattr(link, "standby"):
+            link.standby = self.cable_open  # A link that stands down for the cable waits while it is open
         link.on_record = functools.partial(self.on_record, source=link)
         link.on_open = functools.partial(self.on_open, source=link)
         link.on_lost = functools.partial(self.on_lost, source=link)
+
+    def cable_open(self) -> bool:
+        """Whether a cable link has the deck."""
+        return any(getattr(link, "kind", "") == USB and link.connected for link in self.links)
 
     def device_ready(self) -> bool:
         return self.link is not None and self.link.connected
@@ -188,6 +194,10 @@ class Bridge:
         be booting and miss this — then its own hello at start does the asking — so the snapshot waits for the deck's
         hello, sent once it listens. The cable wins: a deck on it stands the Wi-Fi link down (AGENT_DECK §19.3)."""
         source = source if source is not None else self.link
+        if getattr(source, "kind", "") != USB and self.cable_open():
+            if hasattr(source, "pause"):
+                source.pause(True)  # Opened as the cable did: the cable wins, and this one stands down
+            return
         with self.lock:
             self.link = source
         if getattr(source, "kind", "") == USB:
@@ -205,6 +215,10 @@ class Bridge:
         if r.get("type") == "hello":
             if source is not None and not source.connected:
                 return  # A line read before its link closed: the deck is gone, whatever it said then
+            if source is not None and source is not self.link and (getattr(source, "kind", "") == USB
+                                                                  or not getattr(self.link, "connected", False)):
+                with self.lock:
+                    self.link = source  # The deck speaks on this link: the cable always, another while none is open
             with self.lock:
                 self.lost_count += 1  # Back within a grace: what is held stays held, and goes out in the snapshot
                 version = r["version"] if isinstance(r.get("version"), int) else 0
@@ -252,6 +266,15 @@ class Bridge:
         it goes back at once; on a link with a grace it is kept that long for the deck to come back (AGENT_DECK
         §19.3). A link the deck was not on going changes nothing."""
         if source is not None and self.link is not None and source is not self.link:
+            return
+        fallback = next((other for other in self.links
+                         if other is not source and other is not self.link and other.connected), None)
+        if fallback is not None:
+            # Another link still has the deck — the cable, as the Wi-Fi session stands down for it: the bridge's link
+            # now, nothing let go, and the deck asked to say hello on it.
+            with self.lock:
+                self.link = fallback
+            fallback.send({"type": "hello"})
             return
         if getattr(source, "kind", "") == USB:
             for other in self.links:

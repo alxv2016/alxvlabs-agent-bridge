@@ -67,6 +67,7 @@ class NetLink(Link):
         self.out: queue.Queue[bytes] = queue.Queue(OUT_LINES)
         self.paused = False
         self.stopping = False
+        self.standby = lambda: False  # Whether another link has the deck now: the bridge sets it as it attaches this
         self.wake = threading.Event()
 
     @property
@@ -186,7 +187,7 @@ class NetLink(Link):
 
     def run(self) -> None:
         while not self.stopping:
-            if self.paused:
+            if self.paused or self.standby():
                 self.wake.wait(RETRY_S)
                 self.wake.clear()
                 continue
@@ -199,6 +200,9 @@ class NetLink(Link):
                 self.wake.clear()
                 continue
             tls, early = session
+            if self.paused or self.standby():  # the cable opened while this one connected: the cable wins
+                tls.close()
+                continue
             self.path = f"{record['host']}:{record['port']}"
             self.drain()
             self.sock = tls

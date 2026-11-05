@@ -1712,14 +1712,22 @@ class OverWifi(unittest.TestCase):
     @staticmethod
     def links():
         class Cable:  # a SerialLink: it stands down for nothing
-            connected, kind = True, "usb"
+            kind = "usb"
 
             def __init__(self):
-                self.sent = []
+                self.sent, self.connected = [], False
 
             def send(self, r):
                 self.sent.append(r)
                 return True
+
+            def open(self):  # as a real link does: connected, then told
+                self.connected = True
+                self.on_open()
+
+            def lose(self):
+                self.connected = False
+                self.on_lost()
 
         class Net(Cable):
             kind, grace_s = "wifi", 0.3
@@ -1734,6 +1742,8 @@ class OverWifi(unittest.TestCase):
             def reachable(self):
                 return self.paired
 
+            standby = None  # set by the bridge as it attaches
+
         b = bridge.Bridge(None, io.StringIO(), hold_s=5)
         cable, net = Cable(), Net()
         b.attach(cable)
@@ -1743,22 +1753,55 @@ class OverWifi(unittest.TestCase):
     def test_the_cable_wins_and_the_wifi_link_stands_down_while_it_is_there(self):
         b, cable, net = self.links()
         self.assertIs(b.link, cable)
-        net.on_open()
+        net.open()
         self.assertIs(b.link, net)
         self.assertEqual(net.sent, [{"type": "hello"}])
-        cable.on_open()
+        cable.open()
         self.assertIs(b.link, cable)
         self.assertEqual(net.paused, [True])
-        net.on_lost()  # the Wi-Fi session ending as it stands down: nothing held is let go
+        net.lose()  # the Wi-Fi session ending as it stands down: nothing held is let go
         self.assertIs(b.link, cable)
-        cable.on_lost()
+        cable.lose()
         self.assertEqual(net.paused, [True, False])
+
+    def test_a_wifi_link_opening_while_the_cable_is_open_stands_down(self):
+        """The race the board showed: the Wi-Fi link's connect finishing after the cable opened."""
+        b, cable, net = self.links()
+        self.assertTrue(net.standby is not None)
+        cable.open()
+        net.open()
+        self.assertIs(b.link, cable)
+        self.assertEqual(net.paused[-1], True)
+        self.assertEqual(net.sent, [])  # never asked for a hello: it is not the bridge's link
+
+    def test_the_link_in_use_lost_with_the_cable_still_open_falls_back_to_it(self):
+        b, cable, net = self.links()
+        net.open()
+        cable.connected = True  # the cable open behind it, its own opening missed
+        t, result = Hold().held(b)
+        net.lose()
+        self.assertIs(b.link, cable)
+        self.assertEqual(cable.sent[-1], {"type": "hello"})
+        t.join(0.2)
+        self.assertTrue(t.is_alive())  # nothing let go
+        b.decide(1, True)
+        t.join(2)
+        self.assertEqual(result["answer"], "allow")
+
+    def test_a_hello_on_the_cable_makes_it_the_link(self):
+        b, cable, net = self.links()
+        net.open()
+        cable.connected = True
+        with contextlib.redirect_stderr(io.StringIO()):
+            cable.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "usb"})
+        self.assertIs(b.link, cable)
+        self.assertIn("reset", [r["type"] for r in cable.sent])  # the snapshot on the cable
 
     def test_a_loss_off_the_link_in_use_lets_nothing_go(self):
         b, cable, net = self.links()
-        cable.on_open()
+        cable.open()
         t, result = Hold().held(b)
-        net.on_lost()
+        net.lose()
         t.join(0.3)
         self.assertTrue(t.is_alive())
         b.decide(1, True)
@@ -1767,12 +1810,12 @@ class OverWifi(unittest.TestCase):
 
     def test_the_cable_pulled_keeps_what_is_held_for_the_deck_back_on_wifi(self):
         b, cable, net = self.links()
-        cable.on_open()
+        cable.open()
         t, result = Hold().held(b)
-        cable.on_lost()  # unplugged to leave the desk: the Wi-Fi link's grace, not the cable's none
+        cable.lose()  # unplugged to leave the desk: the Wi-Fi link's grace, not the cable's none
         t.join(0.1)
         self.assertTrue(t.is_alive())
-        net.on_open()
+        net.open()
         with contextlib.redirect_stderr(io.StringIO()):
             net.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "wifi"})
         self.assertIn("request", [r["type"] for r in net.sent])  # back on the glass over Wi-Fi
@@ -1785,9 +1828,9 @@ class OverWifi(unittest.TestCase):
     def test_the_cable_pulled_with_no_deck_paired_lets_what_is_held_go(self):
         b, cable, net = self.links()
         net.paired = False
-        cable.on_open()
+        cable.open()
         t, result = Hold().held(b)
-        cable.on_lost()
+        cable.lose()
         t.join(2)
         self.assertFalse(t.is_alive())
         self.assertIsNone(result["answer"])
