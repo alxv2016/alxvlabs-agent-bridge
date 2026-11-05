@@ -1867,8 +1867,9 @@ class OverWifi(unittest.TestCase):
                 heard.append(tls.recv(4096))
 
         record = {"key": self.KEY, "fingerprint": hashlib.sha256(der).hexdigest(), "host": "127.0.0.1", "port": port}
-        got, opened = [], threading.Event()
-        link = net_link.NetLink(lambda: ["3f2a"], lambda i: record, on_record=got.append, on_open=opened.set)
+        got, opened, logged = [], threading.Event(), []
+        link = net_link.NetLink(lambda: ["3f2a"], lambda i: record, on_record=got.append, on_open=opened.set,
+                                on_log=logged.append)
         server = threading.Thread(target=deck, args=(self.KEY,), daemon=True)
         server.start()
         link.start()
@@ -1882,6 +1883,13 @@ class OverWifi(unittest.TestCase):
             link.send({"type": "ping"})
             server.join(5)
             self.assertEqual(heard, [serial_link.encode({"type": "ping"})])
+            for _ in range(250):
+                if any("session ended" in line for line in logged):
+                    break
+                time.sleep(0.02)
+            ended = [line for line in logged if "session ended" in line]
+            self.assertEqual(len(ended), 1)
+            self.assertRegex(ended[0], r"session ended: (the deck closed it|SSL\w*Error: .+|OSError: .+)$")  # says why
         finally:
             link.stopping = True
             link.pause(True)

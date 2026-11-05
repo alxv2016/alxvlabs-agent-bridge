@@ -152,8 +152,9 @@ class NetLink(Link):
             raw.close()
             return None
 
-    def carry(self, tls: ssl.SSLSocket, buf: bytes = b"") -> None:
-        """Lines both ways on this thread until the session ends or the link stands down; `buf` what came already."""
+    def carry(self, tls: ssl.SSLSocket, buf: bytes = b"") -> str:
+        """Lines both ways on this thread until the session ends or the link stands down; `buf` what came already.
+        Why it ended, for the log."""
         first = True
         while not self.stopping and not self.paused:
             try:
@@ -162,7 +163,7 @@ class NetLink(Link):
                     if not first:
                         chunk = tls.recv(16384)
                         if not chunk:
-                            return
+                            return "the deck closed it"
                         buf += chunk
                     first = False
                     while b"\n" in buf:
@@ -182,8 +183,9 @@ class NetLink(Link):
                     tls.settimeout(0.0)
             except ssl.SSLWantReadError:
                 continue
-            except (OSError, ssl.SSLError):
-                return
+            except (OSError, ssl.SSLError) as e:
+                return f"{type(e).__name__}: {e}"
+        return "stood down for the cable" if self.paused else "the bridge stopping"
 
     def run(self) -> None:
         while not self.stopping:
@@ -209,14 +211,14 @@ class NetLink(Link):
             self.log(f"the deck {deck_id} reached over Wi-Fi at {self.path}")
             if self.on_open:
                 self.on_open()
-            self.carry(tls, early)
+            why = self.carry(tls, early)
             self.sock = None
             try:
                 tls.close()
             except OSError:
                 pass
             self.drain()
-            self.log(f"the deck {deck_id}'s Wi-Fi session ended")
+            self.log(f"the deck {deck_id}'s Wi-Fi session ended: {why}")
             if self.on_lost:
                 self.on_lost()
 
