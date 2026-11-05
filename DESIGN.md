@@ -136,7 +136,7 @@ flowchart LR
   objects, so each goes as a flat `question` record, the next once the last is answered, under one `id` with its
   `part`. The deck answers `{"id", "part", "chosen"}`, bit n for option n, and the `ack` gives the `part` back; a
   resend of an earlier part changes nothing. `chosen` 0 leaves the whole call to the terminal: KEY held on the question, or the deck's queue full.
-- **An option's card is `label: description`**, 96 characters, the glass stopping it at four lines; what goes back
+- **An option's card is `label: description`**, 400 characters, the question 400 too, both shown whole on the glass (the deck's kOptionChars, kQuestionChars; the developer's ask, 2026-11-05); what goes back
   is always the `label`. "Other" and free text are the terminal's.
 - **`--answer allow|deny SECONDS` stands in for the device**, answering each held request so long after it
   opens — the answers tried with no deck attached. It leaves questions alone: their answer is the developer's.

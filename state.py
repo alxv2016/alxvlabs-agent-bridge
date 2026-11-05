@@ -38,8 +38,8 @@ DETAIL_CHARS = 64
 MODEL_CHARS = 24  # Characters, its • three bytes: inside kModelChars' 32 bytes
 TOOL_CHARS = 48
 BODY_BYTES = 2048
-QUESTION_CHARS = 240
-OPTION_CHARS = 96
+QUESTION_CHARS = 400  # The deck shows a question and its answers whole (its deck.h kQuestionChars, kOptionChars)
+OPTION_CHARS = 400
 MAX_OPTIONS = 4
 MAX_ID = 0xFFFF  # Agent::id is a uint16_t, non-zero
 
