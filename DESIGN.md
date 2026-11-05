@@ -122,7 +122,7 @@ flowchart LR
   alone is not enough `[CC]`. `answers` is keyed by each question's text, its value the option's `label`, several
   joined with `, ` `[CC]`. The same at `PermissionRequest` is undocumented and not tried.
 - **Nothing shows in the terminal while a question is held**, as the prompt comes after `PreToolUse`, so there is no
-  answering in both places as a request has. A call is held `--question-hold` seconds (120 by default, under 580), all
+  answering in both places as a request has. A call is held `--question-hold` seconds (30 by default, under 580 — the developer's choice, 2026-11-05), all
   its parts together: long enough to reach the knob, short enough that a developer at the keyboard is not left waiting. Then it closes
   `timed_out` and the terminal asks. The hook's `timeout` is 600 s for every `PreToolUse`, a ceiling: `hook.py`'s own
   2 s still bounds every other tool.

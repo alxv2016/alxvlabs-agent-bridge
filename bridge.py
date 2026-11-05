@@ -2,7 +2,7 @@
 """The agent deck's bridge on the Mac: Claude Code's hooks and status line in, the deck's records out.
 
     bridge.py [--port 8737] [--record FILE] [--context-window 1000000] [--no-usage-cache] [--refresh-usage 3600]
-              [--serial /dev/cu.usbmodem101 | --no-serial] [--hold 570] [--question-hold 120]
+              [--serial /dev/cu.usbmodem101 | --no-serial] [--hold 570] [--question-hold 30]
               [--answer allow|deny SECONDS] [--plugin NAME]
 
 Listens on 127.0.0.1 only for what hook.py forwards — POST /hook, /status, /subagent-status — runs it through
@@ -73,7 +73,7 @@ NAMED_VERSION = 4      # And names the deck: `id`, `board` and `link` (the firmw
 HELLO_FIELD = re.compile(r"[a-z0-9-]{1,16}")  # A hello's names, as the deck sends them (deck_link.h kMaxHelloField)
 PING_S = 2.0          # onx/deck_link.h kPingMs: the deck takes the bridge for gone after three missed
 DEFAULT_HOLD_S = 570  # Under hook.py's 590 s wait on a request
-DEFAULT_QUESTION_HOLD_S = 120  # The terminal shows nothing while a question is held, so it waits less (DESIGN.md §4)
+DEFAULT_QUESTION_HOLD_S = 30  # The terminal shows nothing while a question is held, so it waits less (DESIGN.md §4)
 DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while the deck is attached — the developer's
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
 MAX_RELEASE_S = 600
