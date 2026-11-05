@@ -5,7 +5,7 @@
     link.send({"type": "agent", ...})        # one record, framed
     link.release(60)                          # let go of the port for flashing, the boot check or a screenshot
 
-A line is `@deck <crc32 hex> <json>`, both ways (onx/deck_link.h). The board's console log shares the cable: a
+A line is `@deck <crc32 hex> <json>`, both ways (link.py). The board's console log shares the cable: a
 line that is not a frame is the board's log, handed to `on_log`, and a frame may sit at the end of a log line a
 write split, so the prefix is looked for anywhere in a line. A damaged frame of a Wi-Fi record goes to `on_log`
 without its body: a scan names the neighbours' networks (DESIGN.md §9). Nothing sent is logged.
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import fcntl
 import glob
-import json
 import os
 import queue
 import select
@@ -26,9 +25,9 @@ import struct
 import termios
 import threading
 import time
-import zlib
 
-PREFIX = b"@deck "
+from link import PREFIX, USB, Link, decode, encode  # noqa: F401 — encode and decode are the link's, kept here too
+
 WIFI_MARK = b'"wifi'  # Every Wi-Fi record's type starts so, wherever a torn frame's JSON keeps it
 PORT_GLOBS = ("/dev/cu.usbmodem*", "/dev/ttyACM*")  # macOS, Linux
 REOPEN_S = 1.0
@@ -37,33 +36,6 @@ REOPEN_S = 1.0
 # hooks behind it: each waited WRITE_WAIT_S a line with the lock held, past hook.py's 2 s (DESIGN.md §2).
 WRITE_WAIT_S = 1.0  # a line the deck does not take in this long is dropped, the port kept
 OUT_LINES = 256  # lines waiting for the deck; past it a line is dropped, as one the deck does not read is
-
-
-def encode(record: dict) -> bytes:
-    body = json.dumps(record, separators=(",", ":")).encode()
-    return PREFIX + b"%08x " % zlib.crc32(body) + body + b"\n"
-
-
-def decode(line: bytes) -> dict | None:
-    """The record a frame carries, or None for a log line, a torn frame or a wrong CRC."""
-    at = line.rfind(PREFIX)
-    if at < 0:
-        return None
-    rest = line[at + len(PREFIX):].strip()
-    if len(rest) < 10 or rest[8:9] != b" ":
-        return None
-    try:
-        want = int(rest[:8], 16)
-    except ValueError:
-        return None
-    body = rest[9:]
-    if zlib.crc32(body) != want:
-        return None
-    try:
-        record = json.loads(body)
-    except ValueError:
-        return None
-    return record if isinstance(record, dict) else None
 
 
 def log_text(line: bytes) -> str:
@@ -102,7 +74,10 @@ def open_without_reset(path: str) -> int:
     return fd
 
 
-class SerialLink:
+class SerialLink(Link):
+    kind = USB
+    grace_s = 0.0  # A pulled cable: the developer has gone to the terminal, so what is held goes back at once
+
     def __init__(self, on_record, on_open, on_log=None, on_lost=None, port: str | None = None):
         self.on_record, self.on_open, self.on_log, self.on_lost = on_record, on_open, on_log, on_lost
         self.port = port

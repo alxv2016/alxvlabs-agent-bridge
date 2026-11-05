@@ -60,7 +60,8 @@ flowchart LR
 | `hook.py` | What Claude Code runs for every hook (`hook.py hook`), the `statusLine` (`hook.py status`) and the `subagentStatusLine` (`hook.py subagent-status`): POSTs the input to the bridge on `127.0.0.1:8737` (`DECK_BRIDGE_PORT` in Claude Code's environment), prints the bridge's answer, or the status line — `deck \| Opus \| ctx 8% \| 5h 23% \| 7d 41%`, `deck off` while the bridge is stopped. With the bridge stopped a hook prints nothing and exits 0. It waits for the bridge 2 s (`TIMEOUT_S`) inside each hook's 5 s `timeout` (`install.py`'s `HOOK_TIMEOUT_S`), and 590 s on a permission request, which the bridge may hold for the device. From the plugin, `hook.py hook --plugin`: it starts the bridge when none answers (§5) |
 | `bridge.py` | The server, on `127.0.0.1` only, one at a time — a second finds the port taken and goes before it touches the deck: each input through the state machine, each record a JSON line on stdout; `--record FILE` keeps every input with its arrival time, the transcripts' included; `--port`, else `DECK_BRIDGE_PORT`, else 8737 — the same port `hook.py` posts to; `--context-window N`, the window a VS Code session's context share is taken of until a terminal session's status line has given its model's |
 | `state.py` | The state machine (`Deck`): pure, the clock passed in, so a recording replays into the same records |
-| `serial_link.py` | The USB cable: the deck's port found and opened with DTR and RTS low, so the chip does not reset; its lines read on one thread, the board's log apart from the `@deck` frames; records written on another from a queue, so `send()` returns at once. A line the deck does not take in 1 s (`WRITE_WAIT_S`), or one past 256 waiting (`OUT_LINES`), is dropped and the port kept: the bridge sends under its lock, and a deck that stops reading — booting, hung, or a firmware that never reads the line — would otherwise hold every hook past `hook.py`'s 2 s. The queue is emptied as the port opens and closes; the deck's next hello brings everything again |
+| `link.py` | What every link to the deck shares (the firmware's AGENT_DECK §19.3): the `@deck <crc32> <json>` lines, framed and read, and `Link`, the one interface the bridge talks to — `kind` (`usb`, `wifi`), `grace_s`, `path`, `connected`, `start()`, `send()`, `release()`, each deck there, record and loss reported through `on_open`, `on_record` and `on_lost`. The cable is the only link built; Wi-Fi is the next |
+| `serial_link.py` | The USB cable, a `Link` with no grace: the deck's port found and opened with DTR and RTS low, so the chip does not reset; its lines read on one thread, the board's log apart from the `@deck` frames; records written on another from a queue, so `send()` returns at once. A line the deck does not take in 1 s (`WRITE_WAIT_S`), or one past 256 waiting (`OUT_LINES`), is dropped and the port kept: the bridge sends under its lock, and a deck that stops reading — booting, hung, or a firmware that never reads the line — would otherwise hold every hook past `hook.py`'s 2 s. The queue is emptied as the port opens and closes; the deck's next hello brings everything again |
 | `transcripts.py` | After each hook but `SessionEnd`, and each second while an agent works or a request is open, the session's transcript — its `isSidechain` lines skipped — and, for a hook with `agent_id` and `agent_type`, the sub-agent's (`agent_transcript_path`, else `<session_id>/subagents/agent-<agent_id>.jsonl` beside it) read on from where the last read stopped: the newest response's context, model and output tokens (`response_tokens`) and its `effort`, a response's lines carrying its final count, a new `ai-title`, the tool calls that ended, an interrupt no response came after, and a sub-agent's `description` from its `.meta.json`, once; each as a `transcript` input |
 | `usage_cache.py` | Once a second, `~/.claude.json` parsed again if it changed, and only its `cachedUsageUtilization` kept: a new fetch's two windows as a `usage-cache` input in the status line's shape. `bridge.py --no-usage-cache` leaves the file unread |
 | `usage_refresh.py` | While the deck is attached, `claude -p /usage --settings '{"disableAllHooks": true}' --no-session-persistence` as the deck connects and then hourly (`--refresh-usage`, 3600 s; 0 never) — the developer's choice, 2026-10-29: the shares move slowly, and each reset counts down from its moment between fetches — so the cache holds a fresh fetch: it fires no hooks — so no page of its own on the deck — keeps no session, and asks the model nothing. `--bare` would skip the login `/usage` needs `[R]` 2026-10-29 |
@@ -91,7 +92,7 @@ flowchart LR
 | `SessionEnd` | Its sub-agents removed, then the session; the active chat's leaves none active until a chat is prompted or opened |
 | Once a second | A previous chat working with no hook for `STALE_S`, 600 s, `idle`, or removed for a sub-agent: an interrupt sends no `Stop`, and a previous chat has no next prompt to clear it |
 | An interrupt in the transcript `[R]` 2026-10-31 | As a `Stop` or `SubagentStop`, which neither a refusal in the terminal nor Esc fires: the agent's open requests closed, and `done`, or `idle` or removed in a previous chat. Claude Code writes `[Request interrupted by user]`, or `… for tool use]`, as a user line; 37 of them in real sessions, none followed directly by a response, and a sub-agent's ends it, its task `killed`. The bridge reads on each second while an agent works; one older than the agent's turn, or with a response after it, is history |
-| The deck's `hello` | `version` 3 takes the state `idle` and `active`; an older deck gets `done` and no `active` (`shows_idle`): it would read `idle` as `Working` and never make room for another agent |
+| The deck's `hello` | `version` 3 takes the state `idle` and `active`; an older deck gets `done` and no `active` (`shows_idle`): it would read `idle` as `Working` and never make room for another agent. `version` 4 also names the deck — `id` (its Wi-Fi MAC's last two bytes in hex), `board` and `link` (`usb`, `wifi`), each 1–16 of `a`–`z`, `0`–`9` and `-` — logged as they change and given by `GET /health` and `install.py --status`; a name breaking that rule names nothing, its version still counting. The Nextion deck's `version` 3 hello, with none of them, keeps everything it has |
 | Status line | The session's `context_pct`, and the window for its model; usage, sent again as a reset's minutes change, and a window past its `resets_at` unknown — its share was the old window's, as Claude Code drops it then `[CC]` |
 | Usage cache `[R]` 2026-10-29 | Usage, when its fetch is newer than the last status line's arrival — the newer of the two always wins |
 | Subagent status line | Nothing: the VS Code extension runs none, and the transcript gives every session and sub-agent the same figure |
@@ -123,8 +124,13 @@ flowchart LR
   its parts together: long enough to reach the knob, short enough that a developer at the keyboard is not left waiting. Then it closes
   `timed_out` and the terminal asks. The hook's `timeout` is 600 s for every `PreToolUse`, a ceiling: `hook.py`'s own
   2 s still bounds every other tool.
+- **Losing the deck lets what is held go**, at once on the cable: a pulled cable means the developer has gone to the
+  terminal. A link with a grace (`Link.grace_s`, about 15 s on Wi-Fi) keeps every held request and question that long
+  first, and a deck whose hello comes within it gets them again in the snapshot — a hello read after its link closed
+  counts for nothing; a hold begun during the grace keeps its own end, and every hold's end still counts
+  (the firmware's AGENT_DECK §19.3).
 - **The deck says it takes questions**: `hello` with `version` 2 or later turns them on (`asks_questions`), and losing
-  the deck turns them off. A deck on older firmware never gets a record it would drop while its hook waits; it keeps
+  the deck — past any grace — turns them off. A deck on older firmware never gets a record it would drop while its hook waits; it keeps
   `needs_you` and the terminal.
 - **One record to a part.** The link drops JSON nested past two levels, and a call holds up to four questions of
   objects, so each goes as a flat `question` record, the next once the last is answered, under one `id` with its
@@ -241,7 +247,6 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 | A request answered in the terminal, in a real session: that a deny's `tool_result` reaches the transcript at once, and whether Claude Code stops the held hook, which decides how fast an allow leaves the deck | Open `[?]` | One allow and one deny in the terminal, with a long-running tool |
 | A question answered on the deck in a real session: Claude Code taking `answers` from a `PreToolUse` hook with a multi-select's labels joined, and what a developer pressing Esc during the hold leaves behind | Open `[?]` | One real `AskUserQuestion` with the deck attached |
 | The plugin end to end: installed from the GitHub marketplace, the bridge started by a hook, stopped by a disable and by an uninstall | Open `[?]` | One install from `alxv2016/alxvlabs-agent-bridge` with the deck attached |
-| The Keychain read from a bridge started detached by a hook: whether macOS shows its admin prompt to it at all, and the exits of a cancelled prompt and a wrong password, taken as 128 and 51 from the codes' low bytes, not yet seen (§9) | Open `[?]` | One Connect on the deck with the plugin's bridge, cancelled once and answered once |
 
 ---
 
@@ -271,10 +276,12 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 - **`security` exits with the OSStatus' low byte**, as `security error` names them: 44 is errSecItemNotFound
   (−25300), `no_password`; 128 errSecUserCanceled (−128), 51 errSecAuthFailed (−25293), 36
   errSecInteractionNotAllowed (−25308), 154 and 155 Authorization Services' cancelled and denied, all `cancelled`.
-  Which of them a cancelled prompt gives is not yet seen (§8).
-- **Only the cable's word reads the Keychain.** The serial link is the only one that hands the bridge the deck's
-  records; a network link must never pass `wifi_join` or `wifi_pick` on, so nothing on the network can make the
-  bridge read a password.
+  The plugin's bridge, started detached by a hook, brings up the prompt and reads the password, and a prompt
+  cancelled ends as `cancelled` on the deck `[MAC]` 2026-11-03; which of those codes the cancel gave was not logged,
+  and a wrong admin password, falling in the same set, ends the same way.
+- **Only the cable's word reads the Keychain.** The bridge takes `wifi_join` and `wifi_pick` only when the link that
+  carried them — each link's records reach it with the link (`Bridge.attach()`) — has `kind` `usb`, and drops them
+  from any other, so nothing on the network can make the bridge read a password.
 - **The password is held in memory only, and goes on the cable alone.** The `wifi` record is sent straight to the
   link, not through `emit()`: never on stdout, which is the plugin's log, never in `--record`'s file, which keeps only
   Claude Code's inputs, and so never in `replay.py`'s or `scrub.py`'s. Nothing about a lookup is logged but a failure's

@@ -195,6 +195,8 @@ def status(settings_path: str) -> int:
         return 1
     print("bridge running:         yes")
     print(f"deck attached:          {'yes, ' + h['port'] if h.get('deck') else 'no'}")
+    if h.get("deck") and h.get("board"):
+        print(f"deck:                   {h['board']} {h['id']} on {h['link']}")
     return 0 if h.get("deck") else 1
 
 

@@ -1146,6 +1146,107 @@ class Link(unittest.TestCase):
         t.join(2)
         self.assertIsNone(result["answer"])
 
+    @staticmethod
+    def linked(kind="usb", grace_s=0.0, **kw):
+        sent = []
+
+        class FakeLink:
+            connected = True
+
+            def send(self, r):
+                sent.append(r)
+                return True
+
+        link = FakeLink()
+        link.kind, link.grace_s = kind, grace_s
+        b = bridge.Bridge(None, io.StringIO(), **kw)
+        b.attach(link)
+        return b, sent
+
+    def test_a_version_4_hello_names_the_deck_and_keeps_what_it_takes(self):
+        b, _ = self.linked()
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            b.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "usb"})
+        self.assertEqual(b.named, {"id": "3f2a", "board": "jc3636k718", "link": "usb"})
+        self.assertIn("jc3636k718 3f2a on usb", err.getvalue())
+        self.assertTrue(b.deck.asks_questions and b.deck.shows_idle)
+        with contextlib.redirect_stderr(io.StringIO()):
+            b.on_record({"type": "hello", "version": 3})  # the Nextion deck on the cable: as today, with no name
+        self.assertIsNone(b.named)
+        self.assertTrue(b.deck.asks_questions and b.deck.shows_idle)
+
+    def test_a_hello_whose_names_break_the_rule_names_nothing(self):
+        b, _ = self.linked()
+        for bad in ({"id": "3F2A"}, {"id": ""}, {"board": "a" * 17}, {"link": 'usb"'}, {"id": 7}, {"link": None}):
+            with self.subTest(bad), contextlib.redirect_stderr(io.StringIO()):
+                b.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "usb", **bad})
+                self.assertIsNone(b.named)
+                self.assertTrue(b.deck.asks_questions)  # its version still says what it takes
+
+    def test_only_the_cable_passes_a_wifi_record_on(self):
+        b, _ = self.linked(kind="wifi")
+        b.wifi_join = b.wifi_pick = lambda r: self.fail("a Wi-Fi record taken off the network")
+        b.link.on_record({"type": "wifi_join", "names": ["Studio"], "rssi": [-50], "secure": [True]})
+        b.link.on_record({"type": "wifi_pick", "name": "Studio"})
+
+    def test_a_deck_back_within_the_grace_keeps_a_held_request(self):
+        b, sent = self.linked(kind="wifi", grace_s=0.3, hold_s=5)
+        t, result = Hold().held(b)
+        b.link.on_lost()
+        t.join(0.1)
+        self.assertTrue(t.is_alive())  # within the grace: still held
+        sent.clear()
+        with contextlib.redirect_stderr(io.StringIO()):
+            b.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "wifi"})
+        self.assertIn("request", [r["type"] for r in sent])  # in the snapshot again
+        t.join(0.4)
+        self.assertTrue(t.is_alive())  # past the grace, still held: the deck came back in it
+        b.decide(1, True)
+        t.join(2)
+        self.assertEqual(result["answer"], "allow")
+
+    def test_a_deck_not_back_within_the_grace_lets_a_held_request_go(self):
+        b, _ = self.linked(kind="wifi", grace_s=0.1, hold_s=5)
+        t, result = Hold().held(b)
+        b.link.on_lost()
+        t.join(2)
+        self.assertFalse(t.is_alive())
+        self.assertIsNone(result["answer"])
+
+    def test_a_hello_read_after_its_link_closed_brings_nothing_back(self):
+        b, sent = self.linked(kind="wifi", grace_s=0.1, hold_s=5)
+        t, result = Hold().held(b)
+        b.link.on_lost()
+        b.link.connected = False  # the reader still had a hello buffered as the writer closed the port
+        sent.clear()
+        b.link.on_record({"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "wifi"})
+        self.assertEqual(sent, [])
+        t.join(2)
+        self.assertFalse(t.is_alive())  # the grace still ran out
+        self.assertIsNone(result["answer"])
+
+    def test_the_grace_lets_go_only_what_was_held_as_the_deck_went(self):
+        b, _ = self.linked(kind="wifi", grace_s=0.2, hold_s=5)
+        b.link.on_lost()
+        t, result = Hold().held(b)  # begun in the grace, as --answer holds with no deck
+        threading.Event().wait(0.4)
+        self.assertTrue(t.is_alive())
+        b.decide(1, False)
+        t.join(2)
+        self.assertEqual(result["answer"], "deny")
+
+    def test_the_log_names_the_deck_once_a_change(self):
+        b, _ = self.linked()
+        hello = {"type": "hello", "version": 4, "id": "3f2a", "board": "jc3636k718", "link": "usb"}
+        with contextlib.redirect_stderr(io.StringIO()) as err:
+            b.on_record(hello)
+            b.link.on_lost()  # a /release for flashing, then the deck back
+            b.on_record(hello)
+            b.on_record({**hello, "id": "3F2A"})
+        lines = err.getvalue().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertIn("its names unreadable", lines[1])
+
     def test_the_link_over_a_pseudo_terminal(self):
         import pty
         try:
@@ -1325,6 +1426,7 @@ class JoinFromTheDeck(unittest.TestCase):
 
         class FakeLink:
             connected = True
+            kind = "usb"
 
             def send(self, r):
                 sent.append(r)
@@ -1343,24 +1445,24 @@ class JoinFromTheDeck(unittest.TestCase):
 
     def test_one_network_both_know_is_sent_with_its_password(self):
         b, sent = self.bridge(FakeMacOS(saved=("Studio", "Elsewhere")))
-        b.on_record(scan(("Cafe", -40, True), ("Studio", -48, True)))
+        b.link.on_record(scan(("Cafe", -40, True), ("Studio", -48, True)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi", "name": "Studio", "password": "test-pass"}])
 
     def test_several_are_offered_in_the_decks_order_with_its_signals(self):
         b, sent = self.bridge(FakeMacOS(saved=("Studio", "Loft")))
-        b.on_record(scan(("Loft", -48, True), ("Cafe", -55, False), ("Studio", -63, True)))
+        b.link.on_record(scan(("Loft", -48, True), ("Cafe", -55, False), ("Studio", -63, True)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi_choose", "names": ["Loft", "Studio"], "rssi": [-48, -63]}])
 
     def test_a_pick_of_one_offered_gets_its_password(self):
         fake = FakeMacOS(saved=("Studio", "Loft"))
         b, sent = self.bridge(fake)
-        b.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
+        b.link.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
         self.settle(b)
         self.assertEqual(fake.keychain_asked(), [])  # nothing read before the person picks
         sent.clear()
-        b.on_record({"type": "wifi_pick", "name": "Studio"})
+        b.link.on_record({"type": "wifi_pick", "name": "Studio"})
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi", "name": "Studio", "password": "test-pass"}])
         self.assertEqual(fake.keychain_asked(), ["Studio"])
@@ -1368,11 +1470,11 @@ class JoinFromTheDeck(unittest.TestCase):
     def test_a_pick_never_offered_is_out_of_reach_and_reads_nothing(self):
         fake = FakeMacOS(saved=("Studio", "Loft"))
         b, sent = self.bridge(fake)
-        b.on_record({"type": "wifi_pick", "name": "Studio"})  # no join before it
-        b.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
+        b.link.on_record({"type": "wifi_pick", "name": "Studio"})  # no join before it
+        b.link.on_record(scan(("Loft", -48, True), ("Studio", -63, True)))
         self.settle(b)
-        b.on_record({"type": "wifi_pick", "name": "Cafe"})
-        b.on_record({"type": "wifi_pick", "name": 3})
+        b.link.on_record({"type": "wifi_pick", "name": "Cafe"})
+        b.link.on_record({"type": "wifi_pick", "name": 3})
         self.settle(b)
         self.assertEqual([r for r in sent if r["type"] == "wifi_error"],
                          [{"type": "wifi_error", "reason": "not_in_reach"}] * 3)
@@ -1381,27 +1483,27 @@ class JoinFromTheDeck(unittest.TestCase):
     def test_no_network_both_know_is_out_of_reach(self):
         fake = FakeMacOS(saved=("Studio",))
         b, sent = self.bridge(fake)
-        b.on_record(scan(("Cafe", -40, True), ("Neighbour", -70, True)))
+        b.link.on_record(scan(("Cafe", -40, True), ("Neighbour", -70, True)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi_error", "reason": "not_in_reach"}])
         self.assertEqual(fake.keychain_asked(), [])
 
     def test_no_keychain_item_is_no_password(self):
         b, sent = self.bridge(FakeMacOS(saved=("Studio",), passwords={}))
-        b.on_record(scan(("Studio", -48, True)))
+        b.link.on_record(scan(("Studio", -48, True)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi_error", "reason": "no_password"}])
 
     def test_a_cancelled_prompt_is_cancelled(self):
         b, sent = self.bridge(FakeMacOS(saved=("Studio",), keychain_exit=128))
-        b.on_record(scan(("Studio", -48, True)))
+        b.link.on_record(scan(("Studio", -48, True)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi_error", "reason": "cancelled"}])
 
     def test_an_open_network_gets_no_password_and_no_keychain(self):
         fake = FakeMacOS(saved=("Cafe",))
         b, sent = self.bridge(fake)
-        b.on_record(scan(("Cafe", -40, False)))
+        b.link.on_record(scan(("Cafe", -40, False)))
         self.settle(b)
         self.assertEqual(sent, [{"type": "wifi", "name": "Cafe", "password": ""}])
         self.assertEqual(fake.keychain_asked(), [])
@@ -1410,13 +1512,13 @@ class JoinFromTheDeck(unittest.TestCase):
         gate = threading.Event()
         fake = FakeMacOS(saved=("Studio", "Loft"), gate=gate)
         b, sent = self.bridge(fake)
-        b.on_record(scan(("Studio", -48, True)))
+        b.link.on_record(scan(("Studio", -48, True)))
         for _ in range(100):
             if fake.keychain_asked():
                 break
             time.sleep(0.01)
         started = time.monotonic()
-        b.on_record(scan(("Loft", -40, True)))  # the serial reader is not held up by the prompt either
+        b.link.on_record(scan(("Loft", -40, True)))  # the serial reader is not held up by the prompt either
         b.on_record({"type": "hello", "version": 3})
         self.assertLess(time.monotonic() - started, 0.5)
         gate.set()
@@ -1428,7 +1530,7 @@ class JoinFromTheDeck(unittest.TestCase):
     def test_nothing_is_sent_with_no_deck_attached(self):
         b, sent = self.bridge(FakeMacOS())
         b.link.connected = False
-        b.on_record(scan(("Studio", -48, True)))
+        b.link.on_record(scan(("Studio", -48, True)))
         self.settle(b)
         self.assertEqual(sent, [])
 
@@ -1438,9 +1540,9 @@ class JoinFromTheDeck(unittest.TestCase):
             b, sent = self.bridge(FakeMacOS(saved=("Studio",)), record_path=path, out=out)
             with contextlib.redirect_stderr(err):
                 b.take("hook", h("SessionStart"))  # the recording and stdout at work
-                b.on_record(scan(("Neighbour", -40, True), ("Studio", -48, True)))
+                b.link.on_record(scan(("Neighbour", -40, True), ("Studio", -48, True)))
                 self.settle(b)
-                b.on_record({"type": "wifi_pick", "name": "Studio"})
+                b.link.on_record({"type": "wifi_pick", "name": "Studio"})
                 self.settle(b)
                 b.take("hook", h("Stop"))
             b.record.close()

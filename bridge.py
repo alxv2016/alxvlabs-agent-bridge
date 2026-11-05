@@ -41,8 +41,10 @@ from __future__ import annotations
 
 import argparse
 import errno
+import functools
 import json
 import os
+import re
 import select
 import socket
 import sys
@@ -52,6 +54,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import plugin_state
 import wifi
+from link import USB, Link
 from serial_link import SerialLink
 from state import Deck
 from transcripts import Transcripts
@@ -63,6 +66,8 @@ MAX_INPUT = 1 << 20
 DENY_MESSAGE = "Denied on the agent deck."  # What Claude is told; the turn carries on
 QUESTIONS_VERSION = 2  # The deck's hello from which it takes "question" records
 IDLE_VERSION = 3       # And the state "idle" and `active`
+NAMED_VERSION = 4      # And names the deck: `id`, `board` and `link` (the firmware's AGENT_DECK §19.3)
+HELLO_FIELD = re.compile(r"[a-z0-9-]{1,16}")  # A hello's names, as the deck sends them (deck_link.h kMaxHelloField)
 PING_S = 2.0          # onx/deck_link.h kPingMs: the deck takes the bridge for gone after three missed
 DEFAULT_HOLD_S = 570  # Under hook.py's 590 s wait on a request
 DEFAULT_QUESTION_HOLD_S = 120  # The terminal shows nothing while a question is held, so it waits less (DESIGN.md §4)
@@ -146,7 +151,10 @@ class Bridge:
         self.out = out
         self.quiet = quiet  # no record on stdout: a login agent's log stays small
         self.record = open(record_path, "a", encoding="utf-8") if record_path else None
-        self.link: SerialLink | None = None
+        self.link: Link | None = None
+        self.named: dict | None = None  # The attached deck's `id`, `board` and `link`, from a version 4 hello
+        self.said = ""  # What the log last said of the deck's names
+        self.lost_count = 0  # Each loss and each hello counts one: a grace let go only if nothing came since
         self.mac = wifi.Mac()  # What the deck's Connect asks macOS; a fake in the tests
         self.wifi_lock = threading.Lock()
         self.wifi_thread: threading.Thread | None = None  # The lookup running, or None
@@ -155,8 +163,12 @@ class Bridge:
 
     # The deck on the cable --------------------------------------------------------------------------------------
 
-    def attach(self, link: SerialLink) -> None:
+    def attach(self, link: Link) -> None:
+        """The link the deck talks on. Its records and its loss come back with the link that carried them: only the
+        cable's word reads the Keychain, and only the link that lost the deck says how long to wait for it."""
         self.link = link
+        link.on_record = functools.partial(self.on_record, source=link)
+        link.on_lost = functools.partial(self.on_lost, source=link)
 
     def device_ready(self) -> bool:
         return self.link is not None and self.link.connected
@@ -171,12 +183,16 @@ class Bridge:
             for r in self.deck.snapshot(time.time()):
                 self.link.send(r)
 
-    def on_record(self, r: dict) -> None:
+    def on_record(self, r: dict, source: Link | None = None) -> None:
         if r.get("type") == "hello":
+            if source is not None and not source.connected:
+                return  # A line read before its link closed: the deck is gone, whatever it said then
             with self.lock:
+                self.lost_count += 1  # Back within a grace: what is held stays held, and goes out in the snapshot
                 version = r["version"] if isinstance(r.get("version"), int) else 0
                 self.deck.asks_questions = version >= QUESTIONS_VERSION
                 self.deck.shows_idle = version >= IDLE_VERSION
+                self.name_deck(r, version)
             self.send_snapshot()  # The deck started, came back, or was asked: everything, after a reset
         elif r.get("type") == "decision" and isinstance(r.get("id"), int):
             self.decide(r["id"], bool(r.get("allow")))
@@ -188,21 +204,54 @@ class Bridge:
                 self.answer(r["id"], part, chosen)
                 if self.link:
                     self.link.send({"type": "ack", "id": r["id"], "part": part})
-        # The serial link is the only one that calls this today. A network link must never pass these two on: nothing
-        # on the network may make the bridge read the Keychain (DESIGN.md §9).
-        elif r.get("type") == "wifi_join":
-            self.wifi_join(r)
-        elif r.get("type") == "wifi_pick":
-            self.wifi_pick(r)
+        # Only the cable's word: nothing on the network may make the bridge read the Keychain (DESIGN.md §9).
+        elif r.get("type") in ("wifi_join", "wifi_pick") and getattr(source, "kind", "") == USB:
+            (self.wifi_join if r["type"] == "wifi_join" else self.wifi_pick)(r)
 
-    def on_lost(self) -> None:
-        """The deck gone — unplugged, reset, or the port lent out: nothing will answer what is held."""
-        with self.lock:
-            self.deck.asks_questions = False
-            for waiter in self.waiting.values():
-                waiter[0].set()
+    def name_deck(self, r: dict, version: int) -> None:
+        """The deck's names from its hello, version 4 on; an older deck has none. Logged as they change."""
+        fields = ("id", "board", "link")
+        named = None
+        if version >= NAMED_VERSION and all(isinstance(r.get(f), str) and HELLO_FIELD.fullmatch(r[f]) for f in fields):
+            named = {f: r[f] for f in fields}
+        self.named = named
+        if named:
+            said = f"{named['board']} {named['id']} on {named['link']}"
+        else:
+            said = "its names unreadable" if version >= NAMED_VERSION else "with no name, an older deck"
+        if said != self.said:
+            self.said = said  # Once a change: a reconnect, a reset or a /release says the same again
+            print(f"bridge: the deck says hello {version}, {said}", file=sys.stderr)
+
+    def on_lost(self, source: Link | None = None) -> None:
+        """The deck gone — unplugged, reset, or the port lent out. On the cable nothing will answer what is held, so
+        it goes back at once; on a link with a grace it is kept that long for the deck to come back (AGENT_DECK
+        §19.3)."""
         with self.wifi_lock:
             self.wifi_offered, self.wifi_secure = [], {}  # A deck back asks again with a scan of its own
+        grace = getattr(source, "grace_s", 0) or 0
+        with self.lock:
+            self.lost_count += 1
+            count, held = self.lost_count, list(self.waiting)
+            if grace > 0:
+                timer = threading.Timer(grace, self.let_go, (count, held))
+                timer.daemon = True
+                timer.start()
+                return
+            self.let_go(count, held)
+
+    def let_go(self, count: int, held: list[int]) -> None:
+        """What was held at loss `count` goes back to the terminal, unless the deck said hello again since. A hold
+        begun after the loss keeps its own end."""
+        with self.lock:
+            if count != self.lost_count:
+                return
+            self.deck.asks_questions = False
+            self.named = None
+            for rid in held:
+                waiter = self.waiting.get(rid)
+                if waiter is not None:
+                    waiter[0].set()
 
     # Joining a network from the deck (DESIGN.md §9) ------------------------------------------------------------
 
@@ -413,13 +462,17 @@ class Bridge:
 def handler(bridge: Bridge):
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
-            """GET /health: whether the deck is attached, and on which port — what `install.py --status` reads."""
+            """GET /health: whether the deck is attached, on which port, and the names its hello gave — what
+            `install.py --status` reads."""
             if self.path != "/health":
                 self.send_error(404)
                 return
             link = bridge.link
-            body = json.dumps({"deck": bridge.device_ready(), "port": link.path if link and link.connected else None,
-                               "agents": len(bridge.deck.agents)}).encode()
+            ready = bridge.device_ready()
+            named = (bridge.named or {}) if ready else {}
+            body = json.dumps({"deck": ready, "port": link.path if ready else None, "agents": len(bridge.deck.agents),
+                               "id": named.get("id"), "board": named.get("board"),
+                               "link": link.kind if ready else None}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -526,9 +579,9 @@ def main() -> int:
             ap.error("--answer allow|deny SECONDS needs --hold")
         bridge.stand_in = (args.answer[0], float(args.answer[1]))
     if not args.no_serial:
-        link = SerialLink(bridge.on_record, bridge.on_open, on_log=lambda line: print(f"board: {line}", file=sys.stderr),
-                          on_lost=bridge.on_lost, port=args.serial)
-        bridge.attach(link)
+        link = SerialLink(None, bridge.on_open, on_log=lambda line: print(f"board: {line}", file=sys.stderr),
+                          port=args.serial)
+        bridge.attach(link)  # Its records and its loss, told with the link
         link.start()
         if not args.no_usage_cache and UsageRefresh(args.refresh_usage, bridge.device_ready).start():
             print(f"bridge: refreshing the plan's usage every {args.refresh_usage:g} s while the deck is attached",
