@@ -263,7 +263,8 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
 | `wifi_join` | Deck | `names`, `rssi`, `secure`: its 2.4 GHz scan, at most 10 networks (`MAX_SCAN`), each once, strongest first |
 | `wifi_choose` | Bridge | `names`, `rssi`: the scanned networks the Mac has saved, when there are several, in the deck's order with its signals |
 | `wifi_pick` | Deck | `name`: the one picked with the knob |
-| `wifi` | Bridge | `name`, `password`: the network to join; `""` for an open one, `secure` false in the scan |
+| `wifi` | Bridge | `name`, `password`, `key`: the network to join, `""` for an open one, `secure` false in the scan; and the pairing's shared key, 64 hex digits, new with every network sent |
+| `wifi_status` | Deck | `id`, `host`, `address`, `port`, `fingerprint`: where a paired deck serving TLS is, and its certificate's SHA-256 to pin; kept in the Keychain only after a key was sent |
 | `wifi_error` | Bridge | `reason`: `not_in_reach` — no scanned network saved on the Mac, or a pick never offered; `cancelled` — the admin prompt cancelled, refused or left 120 s; `no_password` — no Keychain item, or any other failure |
 
 - **The Mac's network is found by elimination.** macOS hides the current network's name from a process with no
