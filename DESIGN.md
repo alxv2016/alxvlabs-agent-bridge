@@ -2,15 +2,18 @@
 
 How the bridge works and why: what it reads from Claude Code, the records it makes, how it holds a permission request
 or a question for the deck, how the plugin and `install.py` set it up, how the deck joins the Mac's Wi-Fi network,
-and what is still open. For whoever changes the bridge; how
+the protocol both decks speak, and what is still open. For whoever changes the bridge; how
 to install and use it is the [README](README.md).
 
 **Source of truth.** The code in this folder, and this doc for the reasons. Claude Code's behaviour comes from its
 documentation at code.claude.com `[CC]` and from real sessions recorded through the bridge `[R]`; where this doc and
-Claude Code's documentation disagree, the documentation wins. The deck's side — its screens, the records it takes
-and the link on the USB cable — is the firmware repo's
-[docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md): the records are its §6, the link its §16, and how Claude Code reaches the deck
-its §3.
+Claude Code's documentation disagree, the documentation wins. The link between the bridge and a deck — its lines and
+every record — is §10 here. Each deck's side — its screens, what each record shows, what it does with the link — is its
+firmware repo's AGENT_DECK: the Nextion deck's
+[docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md)
+and the round knob's
+[docs/JC3636K718_AGENT_DECK.md](https://github.com/alxv2016/claude-agent-deck/blob/main/docs/JC3636K718_AGENT_DECK.md):
+the records on the glass are their §6, the link's deck side their §16, and how Claude Code reaches the deck their §3.
 
 **Stability.** The code cites this doc as `DESIGN.md §n`. Do not renumber; add new material under the next free
 number.
@@ -33,6 +36,7 @@ number.
 | 7 | [Windows](#7-windows) | What runs there, what does not, the work |
 | 8 | [Open items](#8-open-items) | What is not yet known or built |
 | 9 | [Joining a network from the deck](#9-joining-a-network-from-the-deck) | The Wi-Fi records, the Keychain read, and where the password may go |
+| 10 | [The link](#10-the-link) | The protocol both decks speak: the lines, every record each way, the exchange, the versions, the cable and Wi-Fi |
 
 ---
 
@@ -60,7 +64,7 @@ flowchart LR
 | `hook.py` | What Claude Code runs for every hook (`hook.py hook`), the `statusLine` (`hook.py status`) and the `subagentStatusLine` (`hook.py subagent-status`): POSTs the input to the bridge on `127.0.0.1:8737` (`DECK_BRIDGE_PORT` in Claude Code's environment), prints the bridge's answer, or the status line — `deck \| Opus \| ctx 8% \| 5h 23% \| 7d 41%`, `deck off` while the bridge is stopped. With the bridge stopped a hook prints nothing and exits 0. It waits for the bridge 2 s (`TIMEOUT_S`) inside each hook's 5 s `timeout` (`install.py`'s `HOOK_TIMEOUT_S`), and 590 s on a permission request, which the bridge may hold for the device. From the plugin, `hook.py hook --plugin`: it starts the bridge when none answers (§5) |
 | `bridge.py` | The server, on `127.0.0.1` only, one at a time — a second finds the port taken and goes before it touches the deck: each input through the state machine, each record a JSON line on stdout; `--record FILE` keeps every input with its arrival time, the transcripts' included; `--port`, else `DECK_BRIDGE_PORT`, else 8737 — the same port `hook.py` posts to; `--context-window N`, the window a VS Code session's context share is taken of until a terminal session's status line has given its model's |
 | `state.py` | The state machine (`Deck`): pure, the clock passed in, so a recording replays into the same records |
-| `link.py` | What every link to the deck shares (the firmware's AGENT_DECK §19.3): the `@deck <crc32> <json>` lines, framed and read, and `Link`, the one interface the bridge talks to — `kind` (`usb`, `wifi`), `grace_s`, `path`, `connected`, `start()`, `send()`, `release()`, each deck there, record and loss reported through `on_open`, `on_record` and `on_lost`. The cable's is `serial_link.py`, Wi-Fi's `net_link.py` |
+| `link.py` | What every link to the deck shares (§10): the `@deck <crc32> <json>` lines, framed and read, and `Link`, the one interface the bridge talks to — `kind` (`usb`, `wifi`), `grace_s`, `path`, `connected`, `start()`, `send()`, `release()`, each deck there, record and loss reported through `on_open`, `on_record` and `on_lost`. The cable's is `serial_link.py`, Wi-Fi's `net_link.py` |
 | `serial_link.py` | The USB cable, a `Link` with no grace: the deck's port found and opened with DTR and RTS low, so the chip does not reset; its lines read on one thread, the board's log apart from the `@deck` frames; records written on another from a queue, so `send()` returns at once. A line the deck does not take in 1 s (`WRITE_WAIT_S`), or one past 256 waiting (`OUT_LINES`), is dropped and the port kept: the bridge sends under its lock, and a deck that stops reading — booting, hung, or a firmware that never reads the line — would otherwise hold every hook past `hook.py`'s 2 s. The queue is emptied as the port opens and closes; the deck's next hello brings everything again |
 | `transcripts.py` | After each hook but `SessionEnd`, and each second while an agent works or a request is open, the session's transcript — its `isSidechain` lines skipped — and, for a hook with `agent_id` and `agent_type`, the sub-agent's (`agent_transcript_path`, else `<session_id>/subagents/agent-<agent_id>.jsonl` beside it) read on from where the last read stopped: the newest response's context, model and output tokens (`response_tokens`) and its `effort`, a response's lines carrying its final count, a new `ai-title`, the tool calls that ended, an interrupt no response came after, and a sub-agent's `description` from its `.meta.json`, once; each as a `transcript` input |
 | `usage_cache.py` | Once a second, `~/.claude.json` parsed again if it changed, and only its `cachedUsageUtilization` kept: a new fetch's two windows as a `usage-cache` input in the status line's shape. `bridge.py --no-usage-cache` leaves the file unread |
@@ -93,7 +97,7 @@ flowchart LR
 | `SessionEnd` | Its sub-agents removed, then the session; the active chat's leaves none active until a chat is prompted or opened |
 | Once a second | A previous chat working with no hook for `STALE_S`, 600 s, `idle`, or removed for a sub-agent: an interrupt sends no `Stop`, and a previous chat has no next prompt to clear it |
 | An interrupt in the transcript `[R]` 2026-10-31 | As a `Stop` or `SubagentStop`, which neither a refusal in the terminal nor Esc fires: the agent's open requests closed, and `done`, or `idle` or removed in a previous chat. Claude Code writes `[Request interrupted by user]`, or `… for tool use]`, as a user line; 37 of them in real sessions, none followed directly by a response, and a sub-agent's ends it, its task `killed`. The bridge reads on each second while an agent works; one older than the agent's turn, or with a response after it, is history |
-| The deck's `hello` | `version` 3 takes the state `idle` and `active`; an older deck gets `done` and no `active` (`shows_idle`): it would read `idle` as `Working` and never make room for another agent. `version` 4 also names the deck — `id` (its Wi-Fi MAC's last two bytes in hex), `board` and `link` (`usb`, `wifi`), each 1–16 of `a`–`z`, `0`–`9` and `-` — logged as they change and given by `GET /health` and `install.py --status`; a name breaking that rule names nothing, its version still counting. The Nextion deck's `version` 3 hello, with none of them, keeps everything it has |
+| The deck's `hello` | What the bridge sends from then on (§10.5): from `version` 3 the state `idle` and `active`; an older deck gets `done` and no `active` (`shows_idle`), as it would read `idle` as `Working` and never make room for another agent. From `version` 4 the deck's names (§10.3) are logged as they change and given by `GET /health` and `install.py --status`. The Nextion deck's `version` 3 hello, with none of them, keeps everything it has |
 | Status line | The session's `context_pct`, and the window for its model; usage, sent again as a reset's minutes change, and a window past its `resets_at` unknown — its share was the old window's, as Claude Code drops it then `[CC]` |
 | Usage cache `[R]` 2026-10-29 | Usage, when its fetch is newer than the last status line's arrival — the newer of the two always wins |
 | Subagent status line | Nothing: the VS Code extension runs none, and the transcript gives every session and sub-agent the same figure |
@@ -108,7 +112,7 @@ flowchart LR
   hold, then goes back with no decision and the request closes `timed_out`. A request answered in the terminal
   lets its hook go at once with none, so a late answer from the deck reaches nothing. `hook.py` waits 590 s on a
   permission request (`REQUEST_TIMEOUT_S`) inside its hook's 600 s `timeout` (`install.py`, `hooks/hooks.json`). With no deck attached
-  and no `--answer`, every request goes back at once with no decision ([AGENT_DECK §16](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md#16-link)).
+  and no `--answer`, every request goes back at once with no decision (§10.4).
 - **No hook says the terminal answered** `[CC]`: an allow shows only when its tool ends, and a manual deny fires
   nothing, `PermissionDenied` being auto mode's and `Stop` not running on an interrupt. So the bridge looks in two more
   places while a request is open. Each second it reads on in the transcript for a `tool_result` of the call it holds,
@@ -128,14 +132,14 @@ flowchart LR
   terminal. A link with a grace (`Link.grace_s`, about 15 s on Wi-Fi) keeps every held request and question that long
   first, and a deck whose hello comes within it gets them again in the snapshot — a hello read after its link closed
   counts for nothing; a hold begun during the grace keeps its own end, and every hold's end still counts
-  (the firmware's AGENT_DECK §19.3).
+  (§10.6).
 - **The deck says it takes questions**: `hello` with `version` 2 or later turns them on (`asks_questions`), and losing
   the deck — past any grace — turns them off. A deck on older firmware never gets a record it would drop while its hook waits; it keeps
   `needs_you` and the terminal.
-- **One record to a part.** The link drops JSON nested past two levels, and a call holds up to four questions of
+- **One record to a part.** The link drops JSON nested past two levels (§10.1), and a call holds up to four questions of
   objects, so each goes as a flat `question` record, the next once the last is answered, under one `id` with its
   `part`. The deck answers `{"id", "part", "chosen"}`, bit n for option n, and the `ack` gives the `part` back; a
-  resend of an earlier part changes nothing. `chosen` 0 leaves the whole call to the terminal: KEY held on the question, or the deck's queue full.
+  resend of an earlier part changes nothing. `chosen` 0 leaves the whole call to the terminal: the hold on the question (KEY on the Nextion deck, BOOT on the knob), or the deck's queue full.
 - **An option's card is `label: description`**, 400 characters, the question 400 too, both shown whole on the glass (the deck's kOptionChars, kQuestionChars; the developer's ask, 2026-11-05); what goes back
   is always the `label`. "Other" and free text are the terminal's.
 - **`--answer allow|deny SECONDS` stands in for the device**, answering each held request so long after it
@@ -233,7 +237,7 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 
 - **The work:** a Windows back end for `serial_link.py` — the standard library's `ctypes` over Windows' serial API,
   keeping "nothing to install", or the `pyserial` package at the cost of one install step — opening the COM port with
-  DTR and RTS held low so the deck does not reset (the firmware's FIRMWARE_CONFIG §8); finding the deck's COM port,
+  DTR and RTS held low so the deck does not reset (either firmware's FIRMWARE_CONFIG §8); finding the deck's COM port,
   or `--serial COM5`; the hooks in exec form; the login task.
 - **What it needs:** a Windows PC with the deck attached to test on — the serial behaviour cannot be checked from
   macOS.
@@ -256,7 +260,7 @@ driver — but the bridge does not yet. Until it does, the plugin's hooks never 
 ## 9. Joining a network from the deck
 
 The deck's Wi-Fi page asks the bridge, on the cable, for the network the Mac is on and its password, so it can join
-the same one; macOS's own admin prompt guards the password. The flow and the deck's side are the firmware's
+the same one; macOS's own admin prompt guards the password. The flow and the deck's side are the knob's
 [AGENT_DECK §19.8](https://github.com/alxv2016/claude-agent-deck/blob/main/docs/JC3636K718_AGENT_DECK.md#198-joining-a-network-from-the-deck).
 `wifi.py` asks macOS; `Bridge.wifi_join()` and `wifi_pick()` answer the deck.
 
@@ -309,3 +313,109 @@ the same one; macOS's own admin prompt guards the password. The flow and the dec
   Claude Code's inputs, and so never in `replay.py`'s or `scrub.py`'s. Nothing about a lookup is logged but a failure's
   kind. The neighbours' network names stay out of the log too: a damaged Wi-Fi frame reaches the board's log cut at
   its prefix (`serial_link.log_text()`). The tests use made-up networks and passwords only.
+
+---
+
+## 10. The link
+
+The one home of the protocol between the bridge and its decks: the Nextion deck (ONX2424G013,
+[nextion-agent-deck](https://github.com/alxv2016/nextion-agent-deck)) and the round knob (JC3636K718,
+[claude-agent-deck](https://github.com/alxv2016/claude-agent-deck)). Each firmware's AGENT_DECK §16 says what its deck
+does with these lines, and its §6 what a record shows on the glass; the code here is `link.py` (the lines),
+`serial_link.py` and `net_link.py` (the links), `state.py` (the records) and `bridge.py` (the exchange).
+
+### 10.1 Lines
+
+- **Every line is `@deck <crc32> <json>`**, both ways, on every link: the prefix, the CRC-32 of the JSON's bytes in eight
+  lowercase hex digits (IEEE 802.3, as Python's `zlib.crc32`), a space, one JSON object, a newline (`link.encode()`).
+  So the records and the state machine never learn which link carried one.
+- **A line whose CRC fails, or whose JSON is not one object, is dropped** (`link.decode()`); the decks drop one nesting
+  deeper than two levels too — an object of plain values and arrays of plain values is all a record may hold, so a
+  question goes one part at a time (§4).
+- **The prefix may sit anywhere in a line.** On the cable the board's console log shares the stream, and a log line
+  split by a write can carry a frame at its end; what is not a frame is the board's log (`serial_link.py`).
+- **A line is at most 8 KB** — what both decks read (their `kMaxLine`); a request's body is cut to 2048 B to stay
+  well inside it (§3).
+- **Text is what the glass draws** — ASCII, `°` and `•`, every other character `?` (`to_glass()`, §4).
+
+### 10.2 From the bridge
+
+| Record | Fields | Does |
+| --- | --- | --- |
+| `hello` | — | Asks the deck for its hello, as a link opens and when the link in use changes (§10.4) |
+| `reset` | — | Everything on the deck forgotten; the snapshot follows: sessions, sub-agents, the usage, open requests and questions |
+| `agent` | `id`, `parent` (0 for a session), `name` (40 characters), `state` (`working`, `needs_you`, `done`, `idle`), `since_s`, `detail` (64), `context_pct`, `tokens`, `model` (24), and `active` false for an agent of a previous chat | A page added or changed — sent only when something but `since_s` changed, the deck counting it up itself (§4). `idle` and `active` go only to a deck of `version` 3 or later; an older one gets `done` |
+| `remove` | `id` | A page gone |
+| `usage` | `five_hour_pct`, `five_hour_resets_min`, `seven_day_pct`, `seven_day_resets_min`, each −1 unknown | The plan's two windows (§3) |
+| `request` | `id`, `agent`, `tool` (48), `body` (2048 B of UTF-8), `cut` | A permission request held for the deck (§4) |
+| `question` | `id`, `agent`, `part`, `tool`, `question` (400), `options` (1 to 4 strings, 400 each), `multi` | One part of an `AskUserQuestion`, all parts under one `id` — only to a deck of `version` 2 or later (§4). The knob shows 400 whole; the Nextion deck cuts a question to 240 and an option to 96 (its AGENT_DECK §6) |
+| `close` | `id`, `reason` (`answered_elsewhere`, `timed_out`) | A request or question settled elsewhere, or past its hold |
+| `ack` | `id`, and `part` for a question's | An answer reached the bridge, so the deck stops sending it |
+| `ping` | — | Every 2 s (`PING_S`) while a deck is there |
+| `wifi_choose`, `wifi`, `wifi_paired`, `wifi_error` | §9 | The Wi-Fi join, on the cable only |
+
+### 10.3 From the deck
+
+| Record | Fields | Does |
+| --- | --- | --- |
+| `hello` | `version`, and from 4 `id`, `board`, `link` | What the deck takes (§10.5) and, from 4, which deck it is: `id` its Wi-Fi MAC's last two bytes in hex, `board` (`jc3636k718`), `link` (`usb`, `wifi`, or `mock` inside the firmware) — each 1 to 16 of `a`–`z`, `0`–`9` and `-`, so the line needs no escaping; a name breaking that names nothing, its version still counting. The bridge answers it with the snapshot |
+| `decision` | `id`, `allow` | The answer to a request |
+| `answer` | `id`, `part`, `chosen` | The answer to a question's part: bit n for option n, several for a `multi`, 0 to leave the whole call to the terminal (§4) |
+| `wifi_join`, `wifi_pick`, `wifi_status` | §9 | The Wi-Fi join and pairing, taken from the cable only |
+
+### 10.4 The exchange
+
+```mermaid
+sequenceDiagram
+  participant B as Bridge
+  participant D as Deck
+  B->>D: hello
+  D->>B: hello {version, id, board, link}
+  B->>D: reset, then agent, usage, request, question
+  loop every 2 s
+    B->>D: ping
+  end
+  D->>B: decision or answer, every 1 s until its ack
+  B->>D: ack {id, part}
+```
+
+- **A hello starts everything.** The bridge sends its own as a link opens; a deck still booting misses it, and its own
+  hello at start answers instead. A deck's hello, at start, after losing the bridge, or asked, brings the snapshot —
+  only then, once the deck listens. A boot hello crossing the bridge's can bring two snapshots: the second closes a
+  request on view and opens it again, nothing lost.
+- **The deck takes the bridge for gone after three pings missed** (`kLostMs`, 6 s on both decks): it forgets
+  everything and waits for the bridge's hello, saying hello itself.
+- **The deck sends each answer again every second until its `ack`, ten times at most** (`kResendMs`, `kMaxSends` on both
+  decks). A resend of an answer already taken changes nothing; an answer for a request the bridge let go reaches
+  nothing (§4).
+- **A request the deck never answered goes back to the terminal** — past the hold, or the deck lost past the link's
+  grace — and closes `timed_out`; no snapshot carries it again (§4).
+
+### 10.5 Versions
+
+| `version` | The deck takes | Decks |
+| --- | --- | --- |
+| 1 | `agent` (no `idle`, no `active`), `remove`, `usage`, `request`, `close` | — |
+| 2 | `question` too | — |
+| 3 | `idle` and `active` too | The Nextion deck |
+| 4 | Names itself in its hello (`id`, `board`, `link`), and the Wi-Fi join and link (§9, §10.6) | The round knob |
+
+The bridge sets what it sends from the last hello (`Deck.asks_questions`, `Deck.shows_idle`), so an older deck never
+gets a record it would drop while a hook waits on it.
+
+### 10.6 Links
+
+| | The cable (`serial_link.py`) | Wi-Fi (`net_link.py`) |
+| --- | --- | --- |
+| `kind` | `usb` | `wifi` |
+| Reached by | The deck's port, opened with DTR and RTS held low so the chip does not reset | The last deck paired (§9): `agentdeck-<id>.local` (mDNS, `_agentdeck._tcp`), port 8443 |
+| Trust | The cable | TLS with the deck's certificate pinned by its SHA-256, no CA trusted; then the deck's `agentdeck-challenge <nonce>` — 32 random bytes in lowercase hex — answered within 5 s (the knob's `kAuthMs`; `AUTH_S` 10 s here) with `agentdeck-answer <HMAC-SHA256 of the nonce under the shared key>`, and its `agentdeck-ok` before any `@deck` line |
+| Grace (`grace_s`) | 0 s: a pulled cable means the developer has gone to the terminal, so what is held goes at once | 15 s (`GRACE_S`): a deck back within it gets what is held again in the snapshot — the link comes back 5–10 s after the deck's Wi-Fi does (the knob's AGENT_DECK §19.4) |
+| Carries | Every record, the Wi-Fi join's and pairing's included | Every record but the Wi-Fi join's and pairing's (§9) |
+
+- **One deck at a time.** The bridge holds one deck's capabilities, from the last hello, and one link, so a deck on
+  both links counts once: the cable wins, and the Wi-Fi link reaches only the deck paired by its `id` (its host
+  `agentdeck-<id>.local`, §9). The bridge does not compare ids across links.
+- **The cable wins**, on both sides: while a deck is on the cable the Wi-Fi link stands down, and while the bridge speaks
+  on the cable the deck talks there; let loose by the cable, the Wi-Fi link waits 2 s (`SETTLE_S`) first (§9).
+- **The hooks stay on `127.0.0.1`.** Nothing on the network reaches the bridge but the deck's session it opened itself.

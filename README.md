@@ -1,12 +1,14 @@
 # Agent deck bridge
 
-The [agent deck](https://github.com/alxv2016/nextion-agent-deck) is a small round knob display that sits on your desk and shows what Claude Code is doing: your
+The agent deck is a small knob display that sits on your desk and shows what Claude Code is doing: your
 plan's usage, each session and sub-agent at work, and permission requests and questions you can answer with the knob. This
 bridge is the part that runs on your Mac. It takes what Claude Code reports and sends it to the deck over the
-USB-C cable, and it sends your answers back.
+USB-C cable — or over Wi-Fi, for a deck that pairs on the cable first — and it sends your answers back.
 
 It is a Claude Code plugin, `alxvlabs-agent-deck`, and a folder of Python scripts with nothing to install beyond
-Python itself. The firmware for the deck is [alxv2016/nextion-agent-deck](https://github.com/alxv2016/nextion-agent-deck).
+Python itself. It drives either deck: the round 1.8-inch knob,
+[alxv2016/claude-agent-deck](https://github.com/alxv2016/claude-agent-deck), on the cable or Wi-Fi, and the Nextion
+deck, [alxv2016/nextion-agent-deck](https://github.com/alxv2016/nextion-agent-deck), on the cable.
 
 ## What you need
 
@@ -212,9 +214,10 @@ python3 -m unittest discover -s .
 The tests replay recorded Claude Code sessions (`fixtures/`) into the updates the deck would get, with no deck and
 no Claude Code. To record one, start the bridge with `--record FILE`; `scrub.py` cleans a recording of ids, paths
 and text before it goes in `fixtures/`, and `replay.py` turns it into the expected updates. The design and the
-reasons behind it are in [DESIGN.md](DESIGN.md); the deck's side, the records and the link on the cable, in the
-firmware repo's [docs/ONX2424G013_AGENT_DECK.md](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md)
-§6 and §16.
+reasons behind it are in [DESIGN.md](DESIGN.md), the protocol both decks speak in its §10; each deck's side, what the
+records show and what it does with the link, in its firmware repo's AGENT_DECK §6 and §16 —
+[the knob's](https://github.com/alxv2016/claude-agent-deck/blob/main/docs/JC3636K718_AGENT_DECK.md) and
+[the Nextion deck's](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md).
 
 To try the plugin from a working copy, point Claude Code at the folder: `claude --plugin-dir .` — a bridge started
 that way is never seen installed, so stop it yourself afterwards. Raise `version` in `.claude-plugin/plugin.json`

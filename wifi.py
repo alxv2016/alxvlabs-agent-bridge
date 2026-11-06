@@ -7,7 +7,7 @@
 
 The deck's Connect sends its scan on the cable; the bridge crosses it with the networks the Mac has saved, as macOS
 hides the current network's name from a process with no Location permission, and reads the one left from the
-Keychain, behind macOS's own admin prompt (DESIGN.md §9; the firmware's AGENT_DECK §19.8). Every command is run with
+Keychain, behind macOS's own admin prompt (DESIGN.md §9; the knob's AGENT_DECK §19.8). Every command is run with
 its arguments as a list, never through a shell, and its absolute path.
 
 The password is returned and nothing else: it is never logged, printed or put in an exception here, and the caller

@@ -1,4 +1,4 @@
-"""The bridge's side of the USB cable to the agent deck: records out, the deck's answers in (the firmware's AGENT_DECK §16).
+"""The bridge's side of the USB cable to the agent deck: records out, the deck's answers in (DESIGN.md §10.6).
 
     link = SerialLink(on_line, on_open)      # a thread keeps the port open while a deck is attached
     link.start()

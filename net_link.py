@@ -1,4 +1,4 @@
-"""The bridge's side of the link over Wi-Fi (the firmware's AGENT_DECK §19.6, §19.9; DESIGN.md §9): the paired deck
+"""The bridge's side of the link over Wi-Fi (DESIGN.md §9, §10.6; the knob's AGENT_DECK §19.9): the paired deck
 found by its name, TLS with its certificate pinned, the deck's challenge answered, then the same `@deck` lines as on
 the cable.
 
@@ -26,10 +26,10 @@ import time
 
 from link import WIFI, Link, decode, encode
 
-GRACE_S = 15.0       # what is held outlives a short drop this long (AGENT_DECK §19.3)
+GRACE_S = 15.0       # what is held outlives a short drop this long (DESIGN.md §10.6)
 RETRY_S = 5.0        # a deck not found, or a session lost, tried again this often
 SETTLE_S = 2.0       # let loose by the cable going, this link waits this long first: a cable plugged in can open, close
-                     # and open again within about 100 ms (the firmware's AGENT_DECK §14), which would otherwise make a
+                     # and open again within about 100 ms (the knob's AGENT_DECK §14), which would otherwise make a
                      # session for the moment between, ended at once as the cable opens again
 CONNECT_S = 10.0     # the TCP connect and the TLS handshake; a dimmed deck runs slower (AGENT_DECK §14)
 AUTH_S = 10.0        # the challenge, from the handshake done

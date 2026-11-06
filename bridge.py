@@ -70,9 +70,9 @@ MAX_INPUT = 1 << 20
 DENY_MESSAGE = "Denied on the agent deck."  # What Claude is told; the turn carries on
 QUESTIONS_VERSION = 2  # The deck's hello from which it takes "question" records
 IDLE_VERSION = 3       # And the state "idle" and `active`
-NAMED_VERSION = 4      # And names the deck: `id`, `board` and `link` (the firmware's AGENT_DECK §19.3)
+NAMED_VERSION = 4      # And names the deck: `id`, `board` and `link` (DESIGN.md §10.3)
 HELLO_FIELD = re.compile(r"[a-z0-9-]{1,16}")  # A hello's names, as the deck sends them (deck_link.h kMaxHelloField)
-PING_S = 2.0          # onx/deck_link.h kPingMs: the deck takes the bridge for gone after three missed
+PING_S = 2.0          # Both decks' kPingMs: a deck takes the bridge for gone after three missed (DESIGN.md §10.4)
 DEFAULT_HOLD_S = 570  # Under hook.py's 590 s wait on a request
 DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while the deck is attached — the developer's
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
@@ -205,7 +205,7 @@ class Bridge:
     def on_open(self, source: Link | None = None) -> None:
         """A link opened to the deck: it is the bridge's link now, and asks the deck to say hello. The deck may still
         be booting and miss this — then its own hello at start does the asking — so the snapshot waits for the deck's
-        hello, sent once it listens. The cable wins: a deck on it stands the Wi-Fi link down (AGENT_DECK §19.3)."""
+        hello, sent once it listens. The cable wins: a deck on it stands the Wi-Fi link down (DESIGN.md §10.6)."""
         source = source if source is not None else self.link
         if getattr(source, "kind", "") != USB and self.cable_open():
             if hasattr(source, "pause"):
@@ -276,8 +276,8 @@ class Bridge:
 
     def on_lost(self, source: Link | None = None) -> None:
         """The deck gone — unplugged, reset, or the port lent out. On the cable nothing will answer what is held, so
-        it goes back at once; on a link with a grace it is kept that long for the deck to come back (AGENT_DECK
-        §19.3). A link the deck was not on going changes nothing."""
+        it goes back at once; on a link with a grace it is kept that long for the deck to come back (DESIGN.md
+        §10.6). A link the deck was not on going changes nothing."""
         if source is not None and self.link is not None and source is not self.link:
             return
         fallback = next((other for other in self.links
@@ -299,7 +299,7 @@ class Bridge:
         grace = getattr(source, "grace_s", 0) or 0
         if getattr(source, "kind", "") == USB:
             # The cable pulled to leave the desk: a deck paired for Wi-Fi gets that link's grace to come back on it,
-            # what is held kept for it (the firmware's AGENT_DECK §19.3).
+            # what is held kept for it (DESIGN.md §10.6).
             for other in self.links:
                 if other is not source and hasattr(other, "reachable") and other.reachable():
                     grace = max(grace, getattr(other, "grace_s", 0) or 0)

@@ -9,7 +9,7 @@
     records = deck.tick(now)                               # once a second: usage's reset minutes, stale previous chats
 
 Pure and deterministic: the clock is passed in, so a recording replays into the same records
-(DESIGN.md §3; the records are the firmware's AGENT_DECK §6). A record is a dict, one of:
+(DESIGN.md §3; the records are DESIGN.md §10.2). A record is a dict, one of:
 
     {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"[, "active"]}
     {"type": "remove", "id"}
@@ -18,7 +18,7 @@ Pure and deterministic: the clock is passed in, so a recording replays into the 
     {"type": "question", "id", "agent", "part", "tool", "question", "options", "multi"}
     {"type": "close", "id", "reason"}
 
-with the field names and limits of `onx::ui::deck` (onx/deck.h); `state` is "working", "needs_you", "done" or "idle",
+with the field names and limits of DESIGN.md §10.2; `state` is "working", "needs_you", "done" or "idle",
 `active` false for an agent of a previous chat and absent otherwise (DESIGN.md §3), `reason` "answered_elsewhere" or
 "timed_out". An agent record is sent only when something but `since_s` changed: the device counts `since_s` up itself
 from the record's arrival. "idle" and `active` go out only while `shows_idle` says the deck takes them; it gets "done"
@@ -32,7 +32,7 @@ import math
 import os
 import re
 
-# onx/deck.h's limits.
+# The records' limits (DESIGN.md §10.2): the knob's; the Nextion deck cuts a question to 240 and an option to 96.
 NAME_CHARS = 40
 DETAIL_CHARS = 64
 MODEL_CHARS = 24  # Characters, its • three bytes: inside kModelChars' 32 bytes
@@ -132,7 +132,7 @@ def tool_summary(tool: str, tool_input: dict) -> str:
 
 
 def request_body(tool: str, tool_input: dict) -> str:
-    """The whole of what a request asks, as the glass shows it (the firmware's AGENT_DECK §4.3)."""
+    """The whole of what a request asks, as the glass shows it (the knob's AGENT_DECK §4.3)."""
     ti = tool_input if isinstance(tool_input, dict) else {}
     if "command" in ti:
         parts = [str(ti["command"])]

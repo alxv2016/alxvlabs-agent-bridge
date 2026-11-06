@@ -1,4 +1,4 @@
-"""What every link to the deck shares (the firmware's AGENT_DECK §19.3): the lines, and the one interface the bridge
+"""What every link to the deck shares (DESIGN.md §10): the lines, and the one interface the bridge
 talks to, whichever link carries them.
 
     link = SerialLink(on_record, on_open, on_lost=on_lost)   # the USB cable (serial_link.py)
@@ -19,7 +19,7 @@ import zlib
 PREFIX = b"@deck "
 
 USB = "usb"    # The cable: the deck's port, its console and the way to flash it
-WIFI = "wifi"  # The deck on the network (step 4, not yet built)
+WIFI = "wifi"  # The deck on the network (net_link.py)
 
 
 def encode(record: dict) -> bytes:
@@ -52,7 +52,7 @@ def decode(line: bytes) -> dict | None:
 class Link:
     """One way to the deck. `kind` names it (USB or WIFI). `grace_s` is how long the bridge keeps what it holds for
     the deck after `on_lost`: 0 on the cable, where a pulled cable means the developer has gone to the terminal; about
-    15 s on Wi-Fi, where a deck back within it gets them again (AGENT_DECK §19.3). `path` says where the deck is, for
+    15 s on Wi-Fi, where a deck back within it gets them again (DESIGN.md §10.6). `path` says where the deck is, for
     `GET /health`. Only the cable's word may make the bridge read the Keychain (DESIGN.md §9)."""
 
     kind = ""

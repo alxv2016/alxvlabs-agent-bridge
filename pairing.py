@@ -1,4 +1,4 @@
-"""The bridge's pairings with decks over Wi-Fi (the firmware's AGENT_DECK §19.6, DESIGN.md §9): a login-Keychain item
+"""The bridge's pairings with decks over Wi-Fi (the knob's AGENT_DECK §19.6, DESIGN.md §9): a login-Keychain item
 per deck, holding the shared key the bridge made for it and where the deck is — its host, port and the SHA-256 of the
 certificate the bridge pins.
 
@@ -25,7 +25,7 @@ SECURITY = "/usr/bin/security"
 SERVICE = "alxvlabs-agent-deck"     # The items' service; each item's account is the deck's id
 TIMEOUT_S = 10
 ITEM_NOT_FOUND = 44                 # errSecItemNotFound's low byte, as `security` exits
-DECK_ID = re.compile(r"[a-z0-9-]{1,16}")  # A hello's id (the firmware's deck_link.h kMaxHelloField)
+DECK_ID = re.compile(r"[a-z0-9-]{1,16}")  # A hello's id (the knob's deck_link.h kMaxHelloField; DESIGN.md §10.3)
 HEX64 = re.compile(r"[0-9a-f]{64}")
 # Which decks are paired, so the bridge knows whom to look for with no deck on the cable: their ids only, nothing secret;
 # the Keychain holds the rest, by id.
