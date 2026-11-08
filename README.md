@@ -16,6 +16,10 @@ deck, [alxv2016/nextion-agent-deck](https://github.com/alxv2016/nextion-agent-de
   work too but is untested. Windows is not supported yet: there the plugin does nothing, so it does no harm.
 - Claude Code, in the terminal or the VS Code extension.
 - The agent deck, plugged into the Mac with a USB-C cable. It runs from the cable; there is no battery.
+- **A deck whose USB goes through a WCH CH340 USB-serial chip needs WCH's driver on the Mac, once.** macOS has none
+  for that chip, so without it no port appears and the bridge cannot see the deck. Install WCH's `CH34xVCPDriver.pkg`
+  and approve its system extension in System Settings → Privacy & Security. A deck on the ESP32-S3's own USB needs no
+  driver.
 
 ## Set it up
 
@@ -33,7 +37,9 @@ On Claude Code 2.1.275 or later, one line does both:
 ```
 
 Then plug in the deck. The bridge starts by itself with the next thing Claude Code does, in the background with no
-window, and stays running across sessions; the deck leaves `Connecting...` within a few seconds and shows your
+window, and stays running across sessions. It finds the deck on its USB serial port — `/dev/cu.usbmodem*` for a
+board's own USB, `/dev/cu.wchusbserial*` for a WCH serial chip (from 0.2.19), `/dev/ttyACM*` on Linux — when that is
+the one such port plugged in; the deck leaves `Connecting...` within a few seconds and shows your
 sessions. Its log is `~/Library/Logs/agent-deck-bridge.log`.
 
 - **Turn it off** with `/plugin disable alxvlabs-agent-deck@alxvlabs`, or remove it with `/plugin uninstall
@@ -152,7 +158,7 @@ By hand it prints each update it sends the deck, and the deck's own log lines as
 
 | Option | Does |
 | --- | --- |
-| `--serial PATH` | The deck's port, when more than one is plugged in: `/dev/cu.usbmodem*`, or `/dev/cu.wchusbserial*` for a board whose USB-C goes through a CH340 (the ONX3248G035; macOS needs WCH's driver); Linux: `/dev/ttyACM*` |
+| `--serial PATH` | The deck's port, when more than one is plugged in: `/dev/cu.usbmodem*`, or `/dev/cu.wchusbserial*` for a WCH serial chip (with WCH's driver); Linux: `/dev/ttyACM*` |
 | `--hold SECONDS` | How long a request or a question waits for the deck before it is left to Claude Code alone (570) |
 | `--refresh-usage SECONDS` | How often to ask Claude Code for the plan's usage while the deck is attached (3600; 0 never) |
 | `--context-window TOKENS` | The context window to show a VS Code session's share of, for a model the bridge does not know |
@@ -176,7 +182,7 @@ repo's own build and test scripts do this themselves.
 
 | What you see | Why, and what to do |
 | --- | --- |
-| The deck stays on `Connecting...` | The bridge is not running or cannot find the deck: run `install.py --status`. With two USB serial devices plugged in, start it by hand with `--serial`. |
+| The deck stays on `Connecting...` | The bridge is not running or cannot find the deck: run `install.py --status`. With two USB serial devices plugged in, start it by hand with `--serial`. A deck on a WCH serial chip needs WCH's driver (`ls /dev/cu.wchusbserial*` shows its port) and the plugin at 0.2.19 or later. |
 | The status line reads `deck off` | The bridge is not running: `install.py --status`, then look at the log |
 | Everything shows twice, or the plugin seems to do nothing | Both the plugin and `install.py`'s hooks are in: the plugin's stand aside, so the bridge follows `install.py`'s. Keep one — `python3 install.py --uninstall`, or `/plugin uninstall alxvlabs-agent-deck@alxvlabs` |
 | Requests never reach the deck | Claude Code is approving them itself, in auto mode or by a rule, so no permission prompt exists to send |

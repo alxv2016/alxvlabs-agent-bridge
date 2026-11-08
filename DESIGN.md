@@ -408,7 +408,7 @@ gets a record it would drop while a hook waits on it.
 | | The cable (`serial_link.py`) | Wi-Fi (`net_link.py`) |
 | --- | --- | --- |
 | `kind` | `usb` | `wifi` |
-| Reached by | The deck's port — the one `/dev/cu.usbmodem*` (the ESP32-S3's USB Serial/JTAG), `/dev/cu.wchusbserial*` (a CH340 USB-UART, the ONX3248G035's) or `/dev/ttyACM*`, else `--serial` — opened with DTR and RTS held low so the chip does not reset | The last deck paired (§9): `agentdeck-<id>.local` (mDNS, `_agentdeck._tcp`), port 8443 |
+| Reached by | The deck's port — the one `/dev/cu.usbmodem*` (the ESP32-S3's USB Serial/JTAG), `/dev/cu.wchusbserial*` (a WCH CH340 USB-serial chip) or `/dev/ttyACM*`, else `--serial` — opened with DTR and RTS held low so the chip does not reset | The last deck paired (§9): `agentdeck-<id>.local` (mDNS, `_agentdeck._tcp`), port 8443 |
 | Trust | The cable | TLS with the deck's certificate pinned by its SHA-256, no CA trusted; then the deck's `agentdeck-challenge <nonce>` — 32 random bytes in lowercase hex — answered within 5 s (the knob's `kAuthMs`; `AUTH_S` 10 s here) with `agentdeck-answer <HMAC-SHA256 of the nonce under the shared key>`, and its `agentdeck-ok` before any `@deck` line |
 | Grace (`grace_s`) | 0 s: a pulled cable means the developer has gone to the terminal, so what is held goes at once | 15 s (`GRACE_S`): a deck back within it gets what is held again in the snapshot — the link comes back 5–10 s after the deck's Wi-Fi does (the knob's AGENT_DECK §19.4) |
 | Carries | Every record, the Wi-Fi join's and pairing's included | Every record but the Wi-Fi join's and pairing's (§9) |

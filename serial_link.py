@@ -11,7 +11,7 @@ write split, so the prefix is looked for anywhere in a line. A damaged frame of 
 without its body: a scan names the neighbours' networks (DESIGN.md §9). Nothing sent is logged.
 
 The port is the ESP32-S3's USB Serial/JTAG (`/dev/cu.usbmodem*` on macOS, `/dev/ttyACM*` on Linux), or a WCH CH340
-USB-UART bridge on the board, as the ONX3248G035's CH340K (`/dev/cu.wchusbserial*` on macOS, with WCH's driver). DTR
+USB-serial chip on the board (`/dev/cu.wchusbserial*` on macOS, with WCH's driver). DTR
 and RTS can reset the chip on either, so the port is opened with both lines kept low (FIRMWARE_CONFIG §8). Standard
 library only: termios and fcntl.
 """

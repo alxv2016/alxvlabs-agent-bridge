@@ -1110,8 +1110,8 @@ class Link(unittest.TestCase):
         self.assertEqual(serial_link.encode({"type": "ping"}), b'@deck 497c309c {"type":"ping"}\n')
 
     def test_the_cable_finds_the_one_deck_port_a_ch340_included(self):
-        # The ONX3248G035's USB-C goes through a CH340K, which macOS names /dev/cu.wchusbserial*: found as the
-        # ESP32-S3's own /dev/cu.usbmodem* is, and like it only when it is the one port.
+        # A deck on a WCH CH340 USB-serial chip shows as /dev/cu.wchusbserial* on macOS: found as one on the
+        # ESP32-S3's own USB (/dev/cu.usbmodem*) is, and like it only when it is the one port.
         def ports(present):
             def fake_glob(pattern):
                 return [p for p in present if p.startswith(pattern.rstrip("*"))]
