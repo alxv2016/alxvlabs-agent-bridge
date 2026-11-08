@@ -152,7 +152,7 @@ By hand it prints each update it sends the deck, and the deck's own log lines as
 
 | Option | Does |
 | --- | --- |
-| `--serial PATH` | The deck's port, when more than one `/dev/cu.usbmodem*` (Linux: `/dev/ttyACM*`) is plugged in |
+| `--serial PATH` | The deck's port, when more than one is plugged in: `/dev/cu.usbmodem*`, or `/dev/cu.wchusbserial*` for a board whose USB-C goes through a CH340 (the ONX3248G035; macOS needs WCH's driver); Linux: `/dev/ttyACM*` |
 | `--hold SECONDS` | How long a request or a question waits for the deck before it is left to Claude Code alone (570) |
 | `--refresh-usage SECONDS` | How often to ask Claude Code for the plan's usage while the deck is attached (3600; 0 never) |
 | `--context-window TOKENS` | The context window to show a VS Code session's share of, for a model the bridge does not know |

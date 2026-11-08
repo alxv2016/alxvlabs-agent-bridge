@@ -10,8 +10,10 @@ line that is not a frame is the board's log, handed to `on_log`, and a frame may
 write split, so the prefix is looked for anywhere in a line. A damaged frame of a Wi-Fi record goes to `on_log`
 without its body: a scan names the neighbours' networks (DESIGN.md §9). Nothing sent is logged.
 
-The port is the ESP32-S3's USB Serial/JTAG (`/dev/cu.usbmodem*` on macOS, `/dev/ttyACM*` on Linux). DTR low with RTS high resets the chip, so the
-port is opened with both lines kept low (FIRMWARE_CONFIG §8). Standard library only: termios and fcntl.
+The port is the ESP32-S3's USB Serial/JTAG (`/dev/cu.usbmodem*` on macOS, `/dev/ttyACM*` on Linux), or a WCH CH340
+USB-UART bridge on the board, as the ONX3248G035's CH340K (`/dev/cu.wchusbserial*` on macOS, with WCH's driver). DTR
+and RTS can reset the chip on either, so the port is opened with both lines kept low (FIRMWARE_CONFIG §8). Standard
+library only: termios and fcntl.
 """
 
 from __future__ import annotations
@@ -29,7 +31,9 @@ import time
 from link import PREFIX, USB, Link, decode, encode  # noqa: F401 — encode and decode are the link's, kept here too
 
 WIFI_MARK = b'"wifi'  # Every Wi-Fi record's type starts so, wherever a torn frame's JSON keeps it
-PORT_GLOBS = ("/dev/cu.usbmodem*", "/dev/ttyACM*")  # macOS, Linux
+# macOS USB Serial/JTAG, macOS CH340 (WCH's driver), Linux USB Serial/JTAG. find() takes a port only when it is the one
+# match, so a second USB serial device plugged in leaves the deck to --serial.
+PORT_GLOBS = ("/dev/cu.usbmodem*", "/dev/cu.wchusbserial*", "/dev/ttyACM*")
 REOPEN_S = 1.0
 # send() only queues a line; the writer thread waits on the port. The bridge sends under its own lock, so a deck
 # that stops reading — booting, hung, or a firmware that never reads the line — must not hold up Claude Code's
@@ -65,7 +69,7 @@ def open_without_reset(path: str) -> int:
         attrs[1] = 0                                                  # oflag: raw out
         attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL       # cflag: 8N1, no modem hang-up
         attrs[3] = 0                                                  # lflag: no echo, no canonical lines
-        attrs[4] = attrs[5] = termios.B115200                         # speed: ignored on USB, set all the same
+        attrs[4] = attrs[5] = termios.B115200                         # speed: ignored on USB Serial/JTAG; a CH340 runs at it
         termios.tcsetattr(fd, termios.TCSANOW, attrs)
         lower_lines()
     except OSError:

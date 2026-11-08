@@ -1109,6 +1109,28 @@ class Link(unittest.TestCase):
         # JSON too; the line carries it as eight hex digits.
         self.assertEqual(serial_link.encode({"type": "ping"}), b'@deck 497c309c {"type":"ping"}\n')
 
+    def test_the_cable_finds_the_one_deck_port_a_ch340_included(self):
+        # The ONX3248G035's USB-C goes through a CH340K, which macOS names /dev/cu.wchusbserial*: found as the
+        # ESP32-S3's own /dev/cu.usbmodem* is, and like it only when it is the one port.
+        def ports(present):
+            def fake_glob(pattern):
+                return [p for p in present if p.startswith(pattern.rstrip("*"))]
+            return fake_glob
+
+        link = serial_link.SerialLink(lambda record: None, lambda: None)
+        real_glob = serial_link.glob.glob
+        try:
+            for present, found in [
+                (["/dev/cu.wchusbserial10"], "/dev/cu.wchusbserial10"),
+                (["/dev/cu.usbmodem101"], "/dev/cu.usbmodem101"),
+                (["/dev/cu.usbmodem101", "/dev/cu.wchusbserial10"], None),  # two: --serial picks
+                ([], None),
+            ]:
+                serial_link.glob.glob = ports(present)
+                self.assertEqual(link.find(), found, present)
+        finally:
+            serial_link.glob.glob = real_glob
+
     def test_the_bridge_sends_everything_on_open_and_answers_a_decision(self):
         sent = []
 

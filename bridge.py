@@ -653,7 +653,7 @@ def main() -> int:
                     help=f"run `claude -p /usage` this often while the deck is attached; 0 never ({DEFAULT_REFRESH_S})")
     ap.add_argument("--hold", type=float, default=DEFAULT_HOLD_S, metavar="SECONDS",
                     help=f"hold each permission request and question this long for the deck's answer (under 580; {DEFAULT_HOLD_S})")
-    ap.add_argument("--serial", metavar="PORT", help="the deck's port (else the one /dev/cu.usbmodem* or /dev/ttyACM*)")
+    ap.add_argument("--serial", metavar="PORT", help="the deck's port (else the one /dev/cu.usbmodem*, /dev/cu.wchusbserial* or /dev/ttyACM*)")
     ap.add_argument("--no-serial", action="store_true", help="no deck: print the records only")
     ap.add_argument("--quiet", action="store_true", help="print no records, only the bridge's and the board's lines")
     ap.add_argument("--answer", nargs=2, metavar=("allow|deny", "SECONDS"),
