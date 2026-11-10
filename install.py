@@ -50,7 +50,8 @@ AGENT_PLIST = os.path.expanduser(f"~/Library/LaunchAgents/{LABEL}.plist")
 LOG = os.path.expanduser("~/Library/Logs/agent-deck-bridge.log")
 BRIDGE_PORT = int(os.environ.get("DECK_BRIDGE_PORT", "8737"))
 EVENTS = ("SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
-          "PermissionRequest", "PermissionDenied", "Notification", "Stop", "SubagentStart", "SubagentStop")
+          "PermissionRequest", "PermissionDenied", "Notification", "Stop", "StopFailure", "SubagentStart",
+          "SubagentStop")
 HOOK_TIMEOUT_S = 5
 REQUEST_TIMEOUT_S = 600  # A permission request or question the bridge holds for the device: over hook.py's REQUEST_TIMEOUT_S
 HELD_EVENTS = ("PermissionRequest",)  # A request or a question, held for the deck's answer

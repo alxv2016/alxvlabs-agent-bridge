@@ -60,7 +60,7 @@ import wifi
 from link import USB, WIFI, Link
 from net_link import NetLink
 from serial_link import SerialLink
-from state import Deck
+from state import UNKNOWN, Deck
 from transcripts import Transcripts
 from usage_cache import UsageCache
 from usage_refresh import UsageRefresh
@@ -78,6 +78,7 @@ DEFAULT_REFRESH_S = 3600  # How often `/usage` freshens the plan's usage while t
                          # choice, 2026-10-29: the shares move slowly, and the resets count down from their moments
 MAX_RELEASE_S = 600
 MAX_SCAN = 10  # The networks a wifi_join carries at most; past them the scan is not read (DESIGN.md §9)
+LIMIT_WATCH_S = 5.0  # How long a turn StopFailure ended is read on for its usage limit's line, flushed after the hook
 GONE_POLL_S = 0.25  # How often a held hook is looked at, to see whether Claude Code still waits on it
 ORPHAN_MARK = ".orphaned_at"  # Claude Code's mark on a version's folder an update has left behind
 UPDATED = "a newer version of the plugin is installed"
@@ -161,6 +162,7 @@ class Bridge:
         self.transcripts = Transcripts()
         self.watched: dict[int, dict] = {}  # request id -> the hook that opened it, for its transcript
         self.turns: dict[tuple, dict] = {}  # (session, agent) -> what its last hook says of its transcript
+        self.limit_watch: dict[tuple, tuple] = {}  # (session, agent) -> (its StopFailure, read on until), DESIGN.md §3
         self.usage_cache = usage_cache
         # Reentrant: a send that fails under it closes the link, whose on_lost takes it on the same thread.
         self.lock = threading.RLock()
@@ -446,10 +448,17 @@ class Bridge:
             now = time.time()
             inputs = [(kind, data)]
             if kind == "hook" and isinstance(data, dict):
-                inputs += [("transcript", t) for t in self.transcripts.observe(data)]
-                self.turns[(data.get("session_id"), data.get("agent_id"))] = {
-                    k: data[k] for k in ("session_id", "agent_id", "agent_type", "transcript_path",
-                                         "agent_transcript_path") if k in data}
+                read = [("transcript", t) for t in self.transcripts.observe(data)]
+                whose = (data.get("session_id"), data.get("agent_id"))
+                self.turns[whose] = {k: data[k] for k in ("session_id", "agent_id", "agent_type", "transcript_path",
+                                                          "agent_transcript_path") if k in data}
+                if data.get("hook_event_name") == "StopFailure":
+                    # The transcript first: a usage limit's line already there gives the record that first says
+                    # `done` its window. Else it is read on a few seconds, as the hook can come before it is flushed.
+                    inputs = read + inputs
+                    self.limit_watch[whose] = (self.turns[whose], now + LIMIT_WATCH_S)
+                else:
+                    inputs += read
             for k, d in inputs:
                 self.keep(now, k, d)
                 records = self.deck.feed(k, d, now)
@@ -467,13 +476,17 @@ class Bridge:
     def watch_transcripts(self) -> None:
         """No hook reports an answer in the terminal, but a refused call's result is in the transcript at once: read
         on, while a request is open, for the ones that ended (DESIGN.md §4). Nor does one report a turn interrupted, so
-        read on while an agent works too (§3)."""
+        read on while an agent works too (§3), and a few seconds after StopFailure ends a turn, for its usage limit's
+        line (§3)."""
         with self.lock:
+            now = time.time()
             self.watched = {r: h for r, h in self.watched.items() if r in self.deck.requests}
             self.turns = {k: h for k, h in self.turns.items() if self.deck.working(k[0] or "", k[1] or "") is not None}
+            self.limit_watch = {k: (h, until) for k, (h, until) in self.limit_watch.items()
+                                if now < until and self.deck.limit_of(k[0] or "", k[1] or "") in ("", UNKNOWN)}
             hooks = {k: h for k, h in self.turns.items() if self.deck.working(k[0] or "", k[1] or "")}
             hooks.update({(h.get("session_id"), h.get("agent_id")): h for h in self.watched.values()})
-            now = time.time()
+            hooks.update({k: h for k, (h, _) in self.limit_watch.items()})
             for h in hooks.values():
                 for t in self.transcripts.observe(h):
                     self.keep(now, "transcript", t)

@@ -11,19 +11,23 @@
 Pure and deterministic: the clock is passed in, so a recording replays into the same records
 (DESIGN.md §3; the records are DESIGN.md §10.2). A record is a dict, one of:
 
-    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"[, "active"]}
+    {"type": "agent", "id", "parent", "name", "state", "since_s", "detail", "context_pct", "tokens", "model"[, "active"]
+     [, "limit"]}
     {"type": "remove", "id"}
-    {"type": "usage", "five_hour_pct", "five_hour_resets_min", "seven_day_pct", "seven_day_resets_min"}
+    {"type": "usage", "five_hour_pct", "five_hour_resets_min", "seven_day_pct", "seven_day_resets_min"[, "limit"]}
     {"type": "request", "id", "agent", "tool", "body", "cut"}
     {"type": "question", "id", "agent", "part", "tool", "question", "options", "multi"}
     {"type": "close", "id", "reason"}
 
 with the field names and limits of DESIGN.md §10.2; `state` is "working", "needs_you", "done" or "idle",
 `active` false for an agent of a previous chat and absent otherwise (DESIGN.md §3), `reason` "answered_elsewhere" or
-"timed_out". An agent record is sent only when something but `since_s` changed: the device counts `since_s` up itself
-from the record's arrival. "idle" and `active` go out only while `shows_idle` says the deck takes them; it gets "done"
-in their place. A question goes out only while `asks_questions` says the deck takes them, one part of its
-AskUserQuestion at a time, under one id (DESIGN.md §4).
+"timed_out". `limit` — "five_hour", "seven_day", or "unknown" until the transcript says which — is on the agent whose
+turn a usage limit ended, from its first `done`, until it works again; and on usage while the limit holds, till its
+reset or the next prompt, a known window read as 100 % (DESIGN.md §3); absent otherwise. An agent record is sent only
+when something but `since_s` changed: the device counts `since_s` up itself from the record's arrival. "idle" and
+`active` go out only while `shows_idle` says the deck takes them; it gets "done" in their place. A question goes out
+only while `asks_questions` says the deck takes them, one part of its AskUserQuestion at a time, under one id
+(DESIGN.md §4).
 """
 
 from __future__ import annotations
@@ -61,6 +65,11 @@ TERMINAL_ONLY = {"AskUserQuestion"}
 # notification may start no turn at all, so no `Stop`; a peer message, a sub-agent's handback, starts one.
 NOTICE_PROMPT = "<task-notification>"
 PEER_PROMPTS = ("Another Claude session sent a message:", "<agent-message")
+
+# A turn `StopFailure` ended on a usage limit (DESIGN.md §3): its window, as the transcript's line names it, or UNKNOWN
+# until that line is read. StopFailure's `error` says `rate_limit` `[CC]`, never which window or when it resets.
+LIMIT_WINDOWS = ("five_hour", "seven_day")
+UNKNOWN = "unknown"
 
 # A session's page before Claude Code has titled it.
 SESSION_NAME = "Claude Code"
@@ -203,11 +212,15 @@ class Agent:
         self.model, self.effort = "", ""  # As Claude Code names them: `Opus 5.5`, `high`
         self.has_status = False  # A status line has given its context: the transcript's is not needed
         self.active = True  # Of the chat last prompted, or none has been; a previous chat's otherwise
+        self.limit = ""  # The usage limit that ended its turn: a window, UNKNOWN, or "" for none
+        self.limit_line: tuple | None = None  # (window, resets_at, at): a limit line read before StopFailure came
         self.sent = None  # the last record sent, less since_s
 
     def set_state(self, state: str, now: float):
         if state != self.state:
             self.state, self.since = state, now
+            if state == WORKING:
+                self.limit = ""  # At work again: the limit no longer stopped it
 
     def record(self, now: float) -> dict:
         r = {"type": "agent", "id": self.id, "parent": self.parent, "name": self.name, "state": self.state,
@@ -216,6 +229,8 @@ class Agent:
              "model": fit(to_glass(" • ".join(x for x in (self.model, self.effort) if x)), MODEL_CHARS)}
         if not self.active:
             r["active"] = False
+        if self.limit:
+            r["limit"] = self.limit
         return r
 
 
@@ -260,6 +275,10 @@ class Deck:
         self.rate_limits: dict = {}
         self.rate_limits_at = 0.0  # When they were measured: the newer of a status line and the usage cache wins
         self.usage_sent = None
+        # The usage limit the account is held at: (window or UNKNOWN, resets_at or None), until it resets or a prompt
+        # starts a new turn after it (`limit_cleared`), which a limit line older than does not set again.
+        self.limit: tuple[str, float | None] | None = None
+        self.limit_cleared = float("-inf")
 
     # Ids -----------------------------------------------------------------------------------------------------
 
@@ -390,13 +409,41 @@ class Deck:
             a.detail = ""  # A turn with no tool call leaves nothing it did
         return out
 
+    def _limit_hit(self, key: str, a: Agent, now: float) -> None:
+        """`StopFailure` with `error` `rate_limit` ended agent `key`'s turn: it and the deck carry the limit, its
+        window from a line the transcript already gave this turn, else UNKNOWN until one comes (DESIGN.md §3)."""
+        line = a.limit_line if a.limit_line is not None and a.limit_line[2] >= a.began else None
+        a.limit_line = None
+        if line is not None:
+            self._hold_limit(line[0], line[1], now)
+        elif self.limit is None:
+            self.limit = (UNKNOWN, None)
+        if key in self.agents:  # A previous chat's sub-agent goes with its turn
+            a.limit = line[0] if line is not None else UNKNOWN
+
+    def _hold_limit(self, window: str, resets_at: float, now: float) -> None:
+        if resets_at > now:
+            self.limit = (window, resets_at)
+
+    def limit_of(self, sid: str, agent: str = "") -> str | None:
+        """The limit on a session or sub-agent: a window, UNKNOWN, or "" for none; None once it has gone."""
+        a = self.agents.get(f"{sid}/{agent}" if agent else sid)
+        return None if a is None else a.limit
+
     def working(self, sid: str, agent: str = "") -> bool | None:
         """Whether a session or sub-agent is working; None once it has gone."""
         a = self.agents.get(f"{sid}/{agent}" if agent else sid)
         return None if a is None else a.state == WORKING
 
     def _usage(self, now: float) -> list[dict]:
+        if self.limit is not None and self.limit[1] is not None and now >= self.limit[1]:
+            self.limit = None  # Reset: the window is the plan's figures again
+        held = self.limit[0] if self.limit is not None else ""
+
         def window(name):
+            if held == name:
+                # At its limit: full, until its reset (DESIGN.md §3), whatever the last figures said.
+                return 100, max(0, math.ceil((float(self.limit[1]) - now) / 60))
             w = self.rate_limits.get(name)
             if not isinstance(w, dict) or w.get("used_percentage") is None:
                 return -1, -1
@@ -411,7 +458,9 @@ class Deck:
         fh, sd = window("five_hour"), window("seven_day")
         u = {"type": "usage", "five_hour_pct": fh[0], "five_hour_resets_min": fh[1],
              "seven_day_pct": sd[0], "seven_day_resets_min": sd[1]}
-        if u == self.usage_sent or not self.rate_limits:
+        if held:
+            u["limit"] = held
+        if u == self.usage_sent or (not self.rate_limits and not held and self.usage_sent is None):
             return []
         self.usage_sent = u
         return [u]
@@ -542,10 +591,12 @@ class Deck:
             pass  # Maybe no turn, so no Stop to end one: a turn it does start shows from its first tool
         elif event == "UserPromptSubmit" and prompt.startswith(PEER_PROMPTS):
             # A turn, not the developer's: nothing they were asked is answered, and it takes no chat over.
+            self._new_turn(now)
             if not any(k == key for k, _ in self.requests.values()):
                 a.set_state(WORKING, now)
                 a.began, a.detail = now, "Thinking"
         elif event == "UserPromptSubmit":
+            self._new_turn(now)
             # A deny in the terminal fires no hook; one with feedback arrives as this prompt. A sub-agent's
             # request still open was denied, and the sub-agent carries on until its own SubagentStop.
             for k in [k for k in self.agents if k.startswith(sid + "/")]:
@@ -617,7 +668,17 @@ class Deck:
                 a.set_state(NEEDS_YOU, now)
         elif event in ("Stop", "SubagentStop"):
             out += self._turn_over(key, a, now)
+        elif event == "StopFailure":
+            # An API error ended the turn, in place of Stop `[CC]`: over all the same, whatever the error. A usage
+            # limit's is `rate_limit`, and the done record carries the limit, as the deck's cue plays on it.
+            out += self._turn_over(key, a, now)
+            if h.get("error") == "rate_limit":
+                self._limit_hit(key, a, now)
         return out
+
+    def _new_turn(self, now: float) -> None:
+        """A prompt starts a turn: the limit is let go, and a turn the limit rejects again sets it again."""
+        self.limit, self.limit_cleared = None, now
 
     def _status(self, s: dict, now: float) -> list[dict]:
         sid = s.get("session_id", "")
@@ -649,6 +710,8 @@ class Deck:
         if t.get("tool_results"):
             ended = set(t["tool_results"])
             return self._ended_elsewhere([r for r, use in self.request_uses.items() if use in ended], now)
+        if isinstance(t.get("limit"), dict):
+            return self._limit_line(f"{sid}/{agent}" if agent else sid, a, t, now)
         if t.get("interrupted") is not None:
             # A refusal in the terminal, or Esc: the turn is over and no Stop or SubagentStop says so (DESIGN.md §3).
             return self._turn_over(f"{sid}/{agent}" if agent else sid, a, now) if t["interrupted"] >= a.began else []
@@ -670,6 +733,21 @@ class Deck:
         window = self.windows.get(model) or self.context_window or KNOWN_WINDOWS.get(model)
         if window:
             a.context_pct = percent(int(context) * 100 / window)
+        return []
+
+    def _limit_line(self, key: str, a: Agent, t: dict, now: float) -> list[dict]:
+        """The transcript's line for a usage limit: its window and reset, for the deck and the agent whose turn it
+        ended. One older than the agent's turn, or than the last prompt, is history (DESIGN.md §3)."""
+        window, resets_at, at = t["limit"].get("window"), t["limit"].get("resets_at"), t.get("at")
+        if window not in LIMIT_WINDOWS or not isinstance(resets_at, (int, float)) or not isinstance(at, (int, float)):
+            return []
+        if at < a.began or at < self.limit_cleared:
+            return []
+        self._hold_limit(window, float(resets_at), now)
+        if a.state in (DONE, IDLE):
+            a.limit = window  # Its StopFailure came first: the window replaces UNKNOWN
+        else:
+            a.limit_line = (window, float(resets_at), float(at))  # Its StopFailure is still to come
         return []
 
     def _usage_cache(self, u: dict) -> list[dict]:

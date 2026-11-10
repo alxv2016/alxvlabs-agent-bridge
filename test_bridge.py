@@ -512,6 +512,183 @@ class Usage(unittest.TestCase):
         self.assertEqual(out[-1]["five_hour_pct"], 25)
 
 
+class UsageLimit(unittest.TestCase):
+    """A turn a usage limit ends fires StopFailure, not Stop `[CC]`; the transcript says which window and when it
+    resets `[R]` 2026-11-01, Claude Code 2.1.314 (DESIGN.md §3)."""
+
+    LIMITS = {"five_hour": {"used_percentage": 97, "resets_at": 7200},
+              "seven_day": {"used_percentage": 61, "resets_at": 99999}}
+
+    @staticmethod
+    def line(window="seven_day", resets_at=1793667600, at="2026-11-01T23:00:31.891Z", **kw):
+        """Claude Code's own line for a usage limit, as recorded."""
+        return {"type": "assistant", "isApiErrorMessage": True, "error": "rate_limit",
+                "apiError": "usage_limit_reached", "apiErrorStatus": 429, "timestamp": at, "isSidechain": False,
+                "message": {"id": "x", "model": "<synthetic>", "role": "assistant",
+                            "content": [{"type": "text", "text": "You've hit your limit"}],
+                            "usage": {"input_tokens": 0, "output_tokens": 0}},
+                "apiErrorParams": {"rate_limit_info": {"status": "rejected", "resetsAt": resets_at,
+                                                       "rateLimitType": window, "overageStatus": "rejected"}},
+                **kw}
+
+    @staticmethod
+    def limit(window="five_hour", resets_at=7200, at=10.0, **kw):
+        return {"session_id": "s1", "limit": {"window": window, "resets_at": resets_at}, "at": at, **kw}
+
+    def deck(self):
+        d = Deck()
+        d.feed("status", {"session_id": "s1", "rate_limits": self.LIMITS}, 0)
+        d.feed("hook", h("UserPromptSubmit", prompt="go"), 5)
+        return d
+
+    def read(self, *lines):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            with open(path, "w") as f:
+                f.writelines(json.dumps(x) + "\n" for x in lines)
+            return Transcripts().observe(h("StopFailure", transcript_path=path, error="rate_limit"))
+
+    def test_the_transcript_says_which_window_and_when_it_resets(self):
+        for window in ("five_hour", "seven_day"):
+            with self.subTest(window):
+                self.assertEqual(self.read(self.line(window)), [
+                    {"session_id": "s1", "limit": {"window": window, "resets_at": 1793667600},
+                     "at": 1793574031.891}])
+
+    def test_other_api_errors_and_unknown_windows_say_nothing(self):
+        overloaded = dict(self.line(), error="overloaded", apiError="overloaded_error", isApiErrorMessage=True)
+        del overloaded["apiErrorParams"]
+        self.assertEqual(self.read(overloaded), [])
+        self.assertEqual(self.read(self.line("seven_day_opus")), [])
+        self.assertEqual(self.read(self.line(isSidechain=True)), [])  # A sub-agent's, in the session's file
+
+    def test_stop_failure_ends_a_working_turn_whatever_the_error(self):
+        d = self.deck()
+        d.feed("hook", h("PreToolUse", tool_name="Bash", tool_input={"command": "ls"}), 6)
+        d.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}), 7)
+        out = d.feed("hook", h("StopFailure", error="overloaded"), 8)
+        self.assertIn({"type": "close", "id": 1, "reason": "answered_elsewhere"}, out)
+        self.assertEqual(d.agents["s1"].state, "done")
+        self.assertNotIn("limit", out[-1])  # Not a limit: nothing held
+        self.assertIsNone(d.limit)
+
+    def test_the_done_record_carries_the_limit_unknown_until_the_line_names_it(self):
+        d = self.deck()
+        out = d.feed("hook", h("StopFailure", error="rate_limit", last_assistant_message="API Error"), 8)
+        agent = [r for r in out if r["type"] == "agent"]
+        self.assertEqual((agent[0]["state"], agent[0]["limit"]), ("done", "unknown"))
+        usage = [r for r in out if r["type"] == "usage"]
+        self.assertEqual(usage, [{"type": "usage", "five_hour_pct": 97, "five_hour_resets_min": 120,
+                                  "seven_day_pct": 61, "seven_day_resets_min": 1667, "limit": "unknown"}])
+        out = d.feed("transcript", self.limit(at=7.5), 9)
+        self.assertEqual([(r["type"], r.get("limit")) for r in out], [("agent", "five_hour"), ("usage", "five_hour")])
+        self.assertEqual((out[1]["five_hour_pct"], out[1]["five_hour_resets_min"]), (100, 120))
+        self.assertEqual(out[1]["seven_day_pct"], 61)
+
+    def test_a_line_read_before_stop_failure_names_the_window_on_the_first_done(self):
+        d = self.deck()
+        out = d.feed("transcript", self.limit("seven_day", resets_at=90000, at=7.0), 8)
+        self.assertEqual(out, [{"type": "usage", "five_hour_pct": 97, "five_hour_resets_min": 120,
+                                "seven_day_pct": 100, "seven_day_resets_min": 1500, "limit": "seven_day"}])
+        self.assertEqual(d.agents["s1"].state, "working")  # Its StopFailure is still to come
+        out = d.feed("hook", h("StopFailure", error="rate_limit"), 8)
+        self.assertEqual((out[0]["state"], out[0]["limit"]), ("done", "seven_day"))
+
+    def test_a_line_older_than_the_turn_is_history(self):
+        d = self.deck()
+        self.assertEqual(d.feed("transcript", self.limit(at=4.0), 6), [])
+        self.assertIsNone(d.limit)
+        out = d.feed("hook", h("StopFailure", error="rate_limit"), 8)
+        self.assertEqual(out[0]["limit"], "unknown")
+
+    def test_the_limit_goes_at_its_reset(self):
+        d = self.deck()
+        d.feed("hook", h("StopFailure", error="rate_limit"), 8)
+        d.feed("transcript", self.limit(resets_at=600), 9)
+        self.assertEqual(d.tick(599)[0]["five_hour_resets_min"], 1)
+        out = d.tick(600)
+        self.assertEqual(out, [{"type": "usage", "five_hour_pct": 97, "five_hour_resets_min": 110,
+                                "seven_day_pct": 61, "seven_day_resets_min": 1657}])
+        self.assertIsNone(d.limit)
+
+    def test_a_new_prompt_lets_the_limit_go_and_the_agent_works_again(self):
+        d = self.deck()
+        d.feed("hook", h("StopFailure", error="rate_limit"), 8)
+        d.feed("transcript", self.limit(), 9)
+        out = d.feed("hook", h("UserPromptSubmit", prompt="again"), 20)
+        self.assertEqual((out[0]["state"], "limit" in out[0]), ("working", False))
+        self.assertNotIn("limit", out[-1])
+        self.assertEqual(out[-1]["five_hour_pct"], 97)
+        self.assertEqual(d.feed("transcript", self.limit(at=9.5), 21), [])  # The old turn's, read late
+        out = d.feed("hook", h("StopFailure", error="rate_limit"), 22)  # Rejected again
+        self.assertEqual(out[0]["limit"], "unknown")
+
+    def test_a_limit_with_no_status_line_still_reaches_the_deck(self):
+        d = Deck()
+        d.feed("hook", h("UserPromptSubmit", prompt="go"), 5)
+        out = d.feed("hook", h("StopFailure", error="rate_limit"), 8)
+        self.assertEqual(out[-1], {"type": "usage", "five_hour_pct": -1, "five_hour_resets_min": -1,
+                                   "seven_day_pct": -1, "seven_day_resets_min": -1, "limit": "unknown"})
+        out = d.feed("hook", h("UserPromptSubmit", prompt="again"), 9)
+        self.assertEqual(out[-1], {"type": "usage", "five_hour_pct": -1, "five_hour_resets_min": -1,
+                                   "seven_day_pct": -1, "seven_day_resets_min": -1})
+
+    def test_a_sub_agents_limit_is_its_own(self):
+        d = self.deck()
+        sub = {"agent_id": "a1", "agent_type": "Plan"}
+        d.feed("hook", h("SubagentStart", **sub), 6)
+        out = d.feed("hook", h("StopFailure", error="rate_limit", **sub), 8)
+        self.assertEqual([(r["id"], r["state"], r.get("limit")) for r in out if r["type"] == "agent"],
+                         [(2, "done", "unknown")])
+        self.assertEqual(d.agents["s1"].state, "working")
+
+    def test_the_bridge_reads_on_after_stop_failure_for_a_line_flushed_late(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            open(path, "w").close()
+            out = io.StringIO()
+            b = bridge.Bridge(None, out, hold_s=5)
+            b.take("hook", h("UserPromptSubmit", prompt="go", transcript_path=path))
+            made = b.take("hook", h("StopFailure", error="rate_limit", transcript_path=path))
+            self.assertEqual((made[0]["state"], made[0]["limit"]), ("done", "unknown"))
+            self.assertIn(("s1", None), b.limit_watch)
+            b.tick()
+            self.assertEqual(b.deck.agents["s1"].limit, "unknown")
+            Written.write(path, self.line("five_hour", resets_at=4102444800, at="2099-01-01T00:00:00.000Z"))
+            b.tick()
+            self.assertEqual(b.deck.agents["s1"].limit, "five_hour")
+            records = [json.loads(x) for x in out.getvalue().splitlines()]
+            self.assertEqual(records[-1]["limit"], "five_hour")
+            self.assertEqual(records[-1]["five_hour_pct"], 100)
+            b.tick()
+            self.assertEqual(b.limit_watch, {})  # Found: read on no more
+
+    def test_the_bridge_gives_up_on_the_line_after_a_few_seconds(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            open(path, "w").close()
+            b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+            b.take("hook", h("UserPromptSubmit", prompt="go", transcript_path=path))
+            b.take("hook", h("StopFailure", error="rate_limit", transcript_path=path))
+            key = ("s1", None)
+            b.limit_watch[key] = (b.limit_watch[key][0], time.time() - 1)
+            b.tick()
+            self.assertEqual(b.limit_watch, {})
+
+    def test_the_bridge_reads_a_line_already_there_before_the_turn_over(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "s1.jsonl")
+            open(path, "w").close()
+            b = bridge.Bridge(None, io.StringIO(), hold_s=5)
+            b.take("hook", h("UserPromptSubmit", prompt="go", transcript_path=path))
+            Written.write(path, self.line("seven_day", resets_at=4102444800, at="2099-01-01T00:00:00.000Z"))
+            made = b.take("hook", h("StopFailure", error="rate_limit", transcript_path=path))
+            first_done = next(r for r in made if r["type"] == "agent" and r["state"] == "done")
+            self.assertEqual(first_done["limit"], "seven_day")
+            self.assertEqual(made[0]["type"], "usage")  # The deck's limit, then the turn over
+            self.assertEqual((made[0]["limit"], made[0]["seven_day_pct"]), ("seven_day", 100))
+
+
 class Written(unittest.TestCase):
     @staticmethod
     def write(path, *lines):

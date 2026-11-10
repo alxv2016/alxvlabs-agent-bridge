@@ -193,7 +193,8 @@ repo's own build and test scripts do this themselves.
 ## What it reads and sends
 
 - **Reads:** what Claude Code's hooks and status line tell it; Claude Code's transcripts under `~/.claude/projects`,
-  for token counts, session titles and sub-agent names; and `~/.claude.json`, of which it keeps only the saved usage figures.
+  for token counts, session titles, sub-agent names, and the usage limit — five-hour or weekly, and when it resets —
+  that ended a turn; and `~/.claude.json`, of which it keeps only the saved usage figures.
   When the deck's Connect asks: the Mac's saved Wi-Fi networks, and one network's password from the Keychain, after
   macOS's admin prompt.
 - **Sends:** to the deck over the USB cable, and nowhere else. It listens on `127.0.0.1` only. The hourly usage

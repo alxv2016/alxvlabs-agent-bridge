@@ -32,11 +32,11 @@ TEXT_KEYS = {"prompt", "command", "content", "old_string", "new_string", "descri
              "message", "title", "session_title", "session_name", "label", "reason_text", "name", "prompt_text",
              "last_assistant_message"}
 DROP_KEYS = {"tool_response", "last_assistant_message", "background_tasks", "session_crons", "repo", "pr",
-             "permission_suggestions", "added_dirs"}
+             "permission_suggestions", "added_dirs", "error_details"}
 # Values Claude Code defines, kept as they are.
 KEEP_KEYS = {"hook_event_name", "tool_name", "agent_type", "agentType", "notification_type", "source", "reason",
              "permission_mode", "status", "type", "id_kind", "display_name", "level", "mcp_server", "version",
-             "model", "style", "mode", "subagent_type"}
+             "model", "style", "mode", "subagent_type", "error", "window"}
 HOME = os.path.expanduser("~")
 USER = os.path.basename(HOME)
 
@@ -118,6 +118,9 @@ def shift(item: dict, offset: float) -> dict:
     if item["kind"] == "usage-cache":
         limits = {k: v for k, v in data.items() if k in ("five_hour", "seven_day")}
         data["fetched_at"] = round(data.get("fetched_at", 0) + offset, 3)
+    if item["kind"] == "transcript" and isinstance(data.get("limit"), dict):
+        limits = {"limit": data["limit"]}
+        data["at"] = round(data.get("at", 0) + offset, 3)
     for w in limits.values():
         if isinstance(w, dict) and w.get("resets_at") is not None:
             w["resets_at"] = round(w["resets_at"] + offset)

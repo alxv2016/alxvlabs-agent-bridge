@@ -18,6 +18,11 @@ a recording replays with no transcript on disk (DESIGN.md §3):
                                                               # one's too, which no hook reports (DESIGN.md §4)
     {"session_id", "agent_id"?, "interrupted"}                # when a refusal or Esc ended the turn, in seconds since
                                                               # the epoch, which no hook reports either (DESIGN.md §3)
+    {"session_id", "agent_id"?, "limit": {"window", "resets_at"}, "at"}
+                                                              # a usage limit ended the turn: `five_hour` or
+                                                              # `seven_day`, when it resets and when the line was
+                                                              # written, in seconds since the epoch; `StopFailure`
+                                                              # gives neither (DESIGN.md §3)
 
 The transcript's format is not documented; it is read as Claude Code 2.1.195 writes it, and a line it cannot read
 is skipped.
@@ -30,6 +35,7 @@ import os
 from datetime import datetime
 
 INTERRUPTED = "[Request interrupted by user"  # Claude Code's own line, `[R]` 2026-10-31 on Claude Code 2.1.314
+LIMIT_WINDOWS = ("five_hour", "seven_day")  # A usage limit's `rateLimitType`, `[R]` 2026-11-01 on Claude Code 2.1.314
 
 
 def context_tokens(usage: dict) -> int:
@@ -48,10 +54,35 @@ def interrupted_at(d: dict) -> float | None:
     if not any(isinstance(b, dict) and b.get("type") == "text" and str(b.get("text", "")).startswith(INTERRUPTED)
                for b in blocks):
         return None
+    return epoch(d.get("timestamp"))
+
+
+def epoch(stamp) -> float | None:
+    """A transcript line's `timestamp`, `2026-11-01T23:00:31.891Z`, in seconds since the epoch, else None."""
     try:
-        return datetime.fromisoformat(str(d.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
     except ValueError:
         return None
+
+
+def limit_hit(d: dict) -> tuple[str, float, float] | None:
+    """When a transcript line is Claude Code's own for a usage limit reached, its (window, resets_at, at), else None.
+    Claude Code writes it as a `<synthetic>` assistant line with `isApiErrorMessage`, `error` `rate_limit`, `apiError`
+    `usage_limit_reached` and `apiErrorParams.rate_limit_info` `[R]` 2026-11-01, Claude Code 2.1.314."""
+    if d.get("type") != "assistant":
+        return None
+    if not ((d.get("isApiErrorMessage") is True and d.get("error") == "rate_limit")
+            or d.get("apiError") == "usage_limit_reached"):
+        return None
+    params = d.get("apiErrorParams")
+    info = params.get("rate_limit_info") if isinstance(params, dict) else None
+    if not isinstance(info, dict) or info.get("rateLimitType") not in LIMIT_WINDOWS:
+        return None
+    resets_at = info.get("resetsAt")
+    if not isinstance(resets_at, (int, float)) or isinstance(resets_at, bool):
+        return None
+    at = epoch(d.get("timestamp"))
+    return None if at is None else (str(info["rateLimitType"]), resets_at, at)
 
 
 class Tail:
@@ -88,16 +119,17 @@ class Transcripts:
         self.titles: dict[str, str] = {}
         self.described: set[tuple] = set()
 
-    def _read(self, path: str, own: bool) -> tuple[tuple | None, str | None, list[str], float | None]:
+    def _read(self, path: str, own: bool) -> tuple[tuple | None, str | None, list[str], float | None, tuple | None]:
         """What a transcript adds since the last read: (model, context, output tokens, effort) of its newest response, a
-        new title, the tool calls that ended, and when an interrupt no response came after ended the turn. A response's
-        lines carry its final count `[R]` 2026-10-30. A `<synthetic>` line is Claude Code's own, no response. A sub-agent's
-        own file marks every line `isSidechain`; in a session's file such a line is a sub-agent's (`own` False)."""
+        new title, the tool calls that ended, when an interrupt no response came after ended the turn, and the newest
+        usage limit's (window, resets_at, at). A response's lines carry its final count `[R]` 2026-10-30. A
+        `<synthetic>` line is Claude Code's own, no response, a usage limit's among them. A sub-agent's own file marks
+        every line `isSidechain`; in a session's file such a line is a sub-agent's (`own` False)."""
         tail = self.tails.setdefault(path, Tail(path))
         latest, title = None, None
         newest_id, written = None, 0
         ended: list[str] = []
-        interrupted = None
+        interrupted, limit = None, None
         for d in tail.lines():
             if not isinstance(d, dict) or (d.get("isSidechain") and not own):
                 continue
@@ -107,6 +139,7 @@ class Transcripts:
                 interrupted = None
             at = interrupted_at(d)
             interrupted = at if at is not None else interrupted
+            limit = limit_hit(d) or limit
             m = d.get("message")
             if d.get("type") == "user" and isinstance(m, dict) and isinstance(m.get("content"), list):
                 ended += [str(b["tool_use_id"]) for b in m["content"] if isinstance(b, dict)
@@ -124,10 +157,10 @@ class Transcripts:
                 else:
                     written = max(written, out)
                 latest = (str(m.get("model") or ""), context, written, str(d.get("effort") or ""))
-        return latest, title, ended, interrupted
+        return latest, title, ended, interrupted, limit
 
     def _context(self, sid: str, agent: str, path: str) -> list[dict]:
-        latest, title, ended, interrupted = self._read(path, own=bool(agent))
+        latest, title, ended, interrupted, limit = self._read(path, own=bool(agent))
         out = []
         whose = {"agent_id": agent} if agent else {}
         if title and not agent and self.titles.get(sid) != title:
@@ -137,6 +170,9 @@ class Transcripts:
             out.append({"session_id": sid, "tool_results": ended, **whose})
         if interrupted is not None:
             out.append({"session_id": sid, "interrupted": interrupted, **whose})
+        if limit is not None:
+            out.append({"session_id": sid, **whose, "limit": {"window": limit[0], "resets_at": limit[1]},
+                        "at": limit[2]})
         if latest is None or self.sent.get((sid, agent)) == latest:
             return out
         self.sent[(sid, agent)] = latest
