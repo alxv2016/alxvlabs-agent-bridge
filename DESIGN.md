@@ -159,6 +159,11 @@ flowchart LR
   itself ([AGENT_DECK §6](https://github.com/alxv2016/nextion-agent-deck/blob/main/docs/ONX2424G013_AGENT_DECK.md#6-data-the-screens-take)).
 - **A recording holds prompts, commands and file contents.** It stays in `$TMPDIR`, outside the repo; only its
   `scrub.py` output, read first, goes in `fixtures/`, beside the records `replay.py` makes of it.
+  `usage_limit.inputs.jsonl` is written by hand, not recorded: a turn the 5-hour limit ends, `StopFailure` before the
+  transcript's line names the window, then a new prompt that lets the limit go.
+- **The records files are the deck's contract.** The ONX3248G035 deck (`claude-agent-deck-3`) keeps a copy of each
+  `fixtures/*.records.jsonl` in its `tests/sim/fixtures/` and plays it in its host simulator; its checks fail when a
+  copy differs from this repo's, so a record changed here shows there before a deck draws it.
 
 ---
 

@@ -1,0 +1,13 @@
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": -1, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": 8, "tokens": 0, "model": ""}
+{"type": "usage", "five_hour_pct": 96, "five_hour_resets_min": 120, "seven_day_pct": 58, "seven_day_resets_min": 4304}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 8, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 1, "detail": "Bash: npm test", "context_pct": 8, "tokens": 0, "model": ""}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "Bash: npm test", "context_pct": 8, "tokens": 0, "model": "", "limit": "unknown"}
+{"type": "usage", "five_hour_pct": 96, "five_hour_resets_min": 120, "seven_day_pct": 58, "seven_day_resets_min": 4304, "limit": "unknown"}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 1, "detail": "Bash: npm test", "context_pct": 8, "tokens": 0, "model": "", "limit": "five_hour"}
+{"type": "usage", "five_hour_pct": 100, "five_hour_resets_min": 120, "seven_day_pct": 58, "seven_day_resets_min": 4304, "limit": "five_hour"}
+{"type": "usage", "five_hour_pct": 100, "five_hour_resets_min": 120, "seven_day_pct": 58, "seven_day_resets_min": 4303, "limit": "five_hour"}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "working", "since_s": 0, "detail": "Thinking", "context_pct": 8, "tokens": 0, "model": ""}
+{"type": "usage", "five_hour_pct": 96, "five_hour_resets_min": 120, "seven_day_pct": 58, "seven_day_resets_min": 4303}
+{"type": "agent", "id": 1, "parent": 0, "name": "Claude Code", "state": "done", "since_s": 0, "detail": "", "context_pct": 8, "tokens": 0, "model": ""}
