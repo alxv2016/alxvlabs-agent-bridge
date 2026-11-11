@@ -15,12 +15,14 @@ no place for two. A deck not there, or a session lost, is tried again every RETR
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import hmac
 import queue
 import select
 import socket
 import ssl
+import sys
 import threading
 import time
 
@@ -73,6 +75,8 @@ class NetLink(Link):
         self.standby = lambda: False  # Whether another link has the deck now: the bridge sets it as it attaches this
         self.wake = threading.Event()
         self.settle_until = 0.0  # time.monotonic() before which this link, let loose, does not connect
+        self.miss: tuple[str, int | None] | None = None  # Why the last try did not reach the deck: (why, errno)
+        self.told: str | None = None  # The miss last logged: a deck not reached is said once a reason, not every try
 
     @property
     def connected(self) -> bool:
@@ -87,6 +91,8 @@ class NetLink(Link):
         cable has stayed gone SETTLE_S."""
         if self.paused and not paused:
             self.settle_until = time.monotonic() + SETTLE_S
+        if paused:
+            self.told = None  # Let loose again later, a deck still not reached is said again
         self.paused = paused
         self.wake.set()
 
@@ -127,10 +133,11 @@ class NetLink(Link):
 
     def connect(self, deck_id: str, record: dict) -> tuple[ssl.SSLSocket, bytes] | None:
         """TLS to the deck, pinned, and its challenge answered: the session and what came after the deck's ok; None
-        when it is not there or not the deck paired."""
+        when it is not there or not the deck paired, and `miss` says why."""
         try:
             raw = socket.create_connection((record["host"], record["port"]), timeout=CONNECT_S)
-        except OSError:
+        except OSError as e:
+            self.miss = (f"{type(e).__name__}: {e.strerror or e}", e.errno)
             return None
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         context.check_hostname = False
@@ -146,6 +153,7 @@ class NetLink(Link):
             challenge = self.read_line(tls, buf, 256)
             reply = answer(challenge, record["key"]) if challenge is not None else None
             if reply is None:
+                self.miss = ("no challenge from the deck", None)
                 tls.close()
                 return None
             tls.sendall(reply)
@@ -155,7 +163,8 @@ class NetLink(Link):
                 return None
             tls.settimeout(0.0)
             return tls, bytes(buf)
-        except (OSError, ssl.SSLError, ValueError):
+        except (OSError, ssl.SSLError, ValueError) as e:
+            self.miss = (f"{type(e).__name__}: {e}", getattr(e, "errno", None))
             raw.close()
             return None
 
@@ -208,11 +217,14 @@ class NetLink(Link):
             ids = self.pairings()
             deck_id = ids[-1] if ids else None
             record = self.load(deck_id) if deck_id else None
+            self.miss = ("no pairing for it in the Keychain", None) if deck_id and record is None else None
             session = self.connect(deck_id, record) if record else None
             if session is None:
+                self.tell_miss(deck_id)
                 self.wake.wait(RETRY_S)
                 self.wake.clear()
                 continue
+            self.miss = self.told = None
             tls, early = session
             if self.paused or self.standby():  # the cable opened while this one connected: the cable wins
                 tls.close()
@@ -233,6 +245,20 @@ class NetLink(Link):
             self.log(f"the deck {deck_id}'s Wi-Fi session ended: {why}")
             if self.on_lost:
                 self.on_lost()
+
+    def tell_miss(self, deck_id: str | None) -> None:
+        """Why the paired deck was not reached, logged once a reason: a try fails every RETRY_S, and the log would fill.
+        `No route to host` to a deck that answers a ping from Terminal is macOS's Local Network privacy: the bridge runs
+        detached, and the permission it gets is that of the app it was started from (DESIGN.md §10.6)."""
+        if deck_id is None or self.miss is None or self.miss[0] == self.told:
+            return
+        why, err = self.miss
+        hint = ""
+        if err in (errno.EHOSTUNREACH, errno.ENETUNREACH, errno.EHOSTDOWN) and sys.platform == "darwin":
+            hint = ("; if the deck answers a ping, macOS is blocking the bridge's local network: allow it in System "
+                    "Settings, Privacy & Security, Local Network, or start the bridge again from a session that has it")
+        self.log(f"the deck {deck_id} not reached over Wi-Fi: {why}{hint}")
+        self.told = why
 
     def drain(self) -> None:
         try:

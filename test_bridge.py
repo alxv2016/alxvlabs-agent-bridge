@@ -10,6 +10,7 @@ running bridge.
 from __future__ import annotations
 
 import contextlib
+import errno
 import glob
 import io
 import ssl
@@ -2145,6 +2146,59 @@ class OverWifi(unittest.TestCase):
             net_link.SETTLE_S = saved
             link.stopping = True
             link.pause(True)
+
+    def test_a_deck_not_reached_is_said_once_a_reason_and_again_after_the_cable(self):
+        # Every try fails the same way every RETRY_S: the log says it once, with the hint for macOS's Local Network
+        # privacy on a route refused, and once more each time the link is let loose after standing down.
+        logged = []
+        link = net_link.NetLink(lambda: ["3f2a"], lambda i: {"host": "x"}, on_log=logged.append)
+
+        def refused(deck_id, record):
+            link.miss = ("OSError: No route to host", errno.EHOSTUNREACH)
+            return None
+
+        link.connect = refused
+        saved, saved_platform = (net_link.RETRY_S, net_link.SETTLE_S), net_link.sys.platform
+        net_link.RETRY_S, net_link.SETTLE_S = 0.02, 0.0
+        net_link.sys.platform = "darwin"
+        try:
+            link.start()
+            time.sleep(0.3)  # about fifteen tries
+            self.assertEqual(len(logged), 1)
+            self.assertIn("the deck 3f2a not reached over Wi-Fi: OSError: No route to host", logged[0])
+            self.assertIn("Local Network", logged[0])
+            link.pause(True)   # the cable in
+            link.pause(False)  # and out again
+            time.sleep(0.3)
+            self.assertEqual(len(logged), 2)
+        finally:
+            net_link.RETRY_S, net_link.SETTLE_S = saved
+            net_link.sys.platform = saved_platform
+            link.stopping = True
+            link.pause(True)
+
+    def test_a_paired_deck_with_no_keychain_record_is_said(self):
+        logged = []
+        link = net_link.NetLink(lambda: ["3f2a"], lambda i: None, on_log=logged.append)
+        saved = net_link.RETRY_S
+        net_link.RETRY_S = 0.02
+        try:
+            link.start()
+            time.sleep(0.2)
+            self.assertEqual(logged, ["the deck 3f2a not reached over Wi-Fi: no pairing for it in the Keychain"])
+        finally:
+            net_link.RETRY_S = saved
+            link.stopping = True
+            link.pause(True)
+
+    def test_a_refused_connect_says_why(self):
+        link = net_link.NetLink(lambda: [], lambda i: None)
+        with socket.socket() as s:  # a port bound and closed again: nothing listens there
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        record = {"key": self.KEY, "fingerprint": "00" * 32, "host": "127.0.0.1", "port": port}
+        self.assertIsNone(link.connect("3f2a", record))
+        self.assertEqual(link.miss[1], errno.ECONNREFUSED)
 
     def test_a_deck_serving_another_certificate_is_not_connected(self):
         link = net_link.NetLink(lambda: [], lambda i: None)

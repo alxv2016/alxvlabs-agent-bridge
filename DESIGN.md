@@ -430,4 +430,10 @@ usage as before.
   `agentdeck-<id>.local`, §9). The bridge does not compare ids across links.
 - **The cable wins**, on both sides: while a deck is on the cable the Wi-Fi link stands down, and while the bridge speaks
   on the cable the deck talks there; let loose by the cable, the Wi-Fi link waits 2 s (`SETTLE_S`) first (§9).
+- **macOS's Local Network privacy can refuse the Wi-Fi link outright.** The bridge runs detached, and the permission
+  it has is the app's it was started from, carried through each update's restart: from one without it, every connect to
+  the LAN fails at once with `No route to host` (errno 65) while the deck answers a ping from Terminal, and mDNS still
+  resolves. A deck not reached is logged once a reason — and again each time the cable lets the link loose — as `the
+  deck <id> not reached over Wi-Fi: <why>`, with the way out on that error: allow the app in System Settings, Privacy &
+  Security, Local Network, or start the bridge from a session that has it.
 - **The hooks stay on `127.0.0.1`.** Nothing on the network reaches the bridge but the deck's session it opened itself.
