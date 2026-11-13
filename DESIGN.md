@@ -89,7 +89,7 @@ flowchart LR
 | `UserPromptSubmit` for a prompt Claude Code submitted itself | The developer's prompts alone do all of the above. `prompt` starting `<task-notification>` changes nothing: a sub-agent that handed back gets one queued with no model call, so no `Stop` follows it, and a turn one does start shows from its first tool `[R]` 2026-10-31, Claude Code 2.1.314. `Another Claude session sent a message:`, a sub-agent's handback, starts a turn that ends in a `Stop`: the session `working`, detail `Thinking`, unless it still waits on a request of its own. Neither closes a request, takes the chat over or removes a finished sub-agent |
 | `PreToolUse` | The agent's own open requests closed, `answered_elsewhere`; `working`, detail the tool and what it touches: `Bash: npm test`, `Edit: deck.cpp`, `WebFetch: example.com` |
 | `PermissionRequest` for `AskUserQuestion` (`TERMINAL_ONLY`) | `needs_you`, detail `Question: …`, and with the deck taking questions a question record, one part of the call at a time, the terminal asking it meanwhile (§4); plain `allow` only lets the question be asked, seen on the board, the question still waiting in VS Code after the deck's Allow `[R]` 2026-10-29, so the deck's answer carries the answers. A question the deck cannot hold, over four options or with none, is left to the terminal |
-| `PermissionRequest` | On the agent that asked — from inside a sub-agent it carries `agent_id` `[R]` 2026-10-29 — `needs_you`, then a request: the whole command and its description, the path and diff or new content, the URL and prompt, or else the input's fields one a line; over 2048 B of UTF-8 cut on a character and marked `cut` |
+| `PermissionRequest` | On the agent that asked — from inside a sub-agent it carries `agent_id` `[R]` 2026-10-29 — `needs_you`, then a request: the whole command and its description, the path and diff or new content, the URL and prompt, or else the input's fields one a line; past the size the deck's hello names (`body`, at most 16 KB; 2048 B for a deck that names none) cut on a character and marked `cut` (§10.3) |
 | `PostToolUse`, `PostToolUseFailure`, `PermissionDenied` | The agent's open request for that tool closed, `answered_elsewhere`; `working`. An allow in the terminal shows as the tool's `PostToolUse` `[R]` 2026-10-29, or `PostToolUseFailure` when it fails, each only once the tool has finished `[CC]` |
 | `Notification` (`permission_prompt`, `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input`) | The session `needs_you`, unless a request from it or its sub-agents is open: the notice carries no `agent_id` `[R]` 2026-10-29 |
 | `Stop`, `SubagentStop` | `done`; open requests closed; a detail of `Thinking` cleared. In a previous chat, a session `idle` and a sub-agent removed. A session stops while a sub-agent it started works on, its `Agent` tool call already answered `[R]` 2026-10-29 |
@@ -342,8 +342,11 @@ does with these lines, and its §6 what a record shows on the glass; the code he
   question goes one part at a time (§4).
 - **The prefix may sit anywhere in a line.** On the cable the board's console log shares the stream, and a log line
   split by a write can carry a frame at its end; what is not a frame is the board's log (`serial_link.py`).
-- **A line is at most 8 KB** — what both decks read (their `kMaxLine`); a request's body is cut to 2048 B to stay
-  well inside it (§3).
+- **A line is at most what the deck reads** — its `kMaxLine`: 8 KB on the Nextion deck and the round knob, 40 KB on
+  the BYTE-90 deck. A request's body is cut to the size the deck's hello names (`body`, §10.3; 2048 B when it names
+  none, at most `MAX_BODY_BYTES` 16 KB), so the line stays inside it: escaping at most doubles a body's bytes — a
+  quote, a backslash or a newline goes as two, `•` (three bytes) as `\u2022` (six) — and a 16 KB body escaped whole
+  is about 33 KB. The bridge reads a deck's line to 41 KB (`net_link.MAX_LINE`).
 - **Text is what the glass draws** — ASCII, `°` and `•`, every other character `?` (`to_glass()`, §4).
 
 ### 10.2 From the bridge
@@ -355,7 +358,7 @@ does with these lines, and its §6 what a record shows on the glass; the code he
 | `agent` | `id`, `parent` (0 for a session), `name` (40 characters), `state` (`working`, `needs_you`, `done`, `idle`), `since_s`, `detail` (64), `context_pct`, `tokens`, `model` (24), `active` false for an agent of a previous chat, and `limit` (`five_hour`, `seven_day`, `unknown`) on an agent whose turn a usage limit ended, absent otherwise | A page added or changed — sent only when something but `since_s` changed, the deck counting it up itself (§4). `idle` and `active` go only to a deck of `version` 3 or later; an older one gets `done`. `limit` is on the record that first says `done`, or `idle`, for that turn; `unknown` until the transcript names the window, then that window; gone once the agent works again (§3) |
 | `remove` | `id` | A page gone |
 | `usage` | `five_hour_pct`, `five_hour_resets_min`, `seven_day_pct`, `seven_day_resets_min`, each −1 unknown, and `limit` (`five_hour`, `seven_day`, `unknown`) while a usage limit holds, absent otherwise | The plan's two windows (§3). While a limit holds on a known window, that window reads 100 % and its `*_resets_min` counts to the limit's reset; `unknown` — a `StopFailure` with `rate_limit` before the transcript names the window — leaves both windows' figures as they are. The limit goes at its reset or the next prompt |
-| `request` | `id`, `agent`, `tool` (48), `body` (2048 B of UTF-8), `cut` | A permission request held for the deck (§4) |
+| `request` | `id`, `agent`, `tool` (48), `body` (UTF-8 to the deck's hello `body`, else 2048 B), `cut` | A permission request held for the deck (§4) |
 | `question` | `id`, `agent`, `part`, `tool`, `question` (400), `options` (1 to 4 strings, 400 each), `multi` | One part of an `AskUserQuestion`, all parts under one `id` — only to a deck of `version` 2 or later (§4). The knob shows 400 whole; the Nextion deck cuts a question to 240 and an option to 96 (its AGENT_DECK §6) |
 | `close` | `id`, `reason` (`answered_elsewhere`, `timed_out`) | A request or question settled elsewhere, or past its hold |
 | `ack` | `id`, and `part` for a question's | An answer reached the bridge, so the deck stops sending it |
@@ -366,7 +369,7 @@ does with these lines, and its §6 what a record shows on the glass; the code he
 
 | Record | Fields | Does |
 | --- | --- | --- |
-| `hello` | `version`, and from 4 `id`, `board`, `link` | What the deck takes (§10.5) and, from 4, which deck it is: `id` its Wi-Fi MAC's last two bytes in hex, `board` (`jc3636k718`), `link` (`usb`, `wifi`, or `mock` inside the firmware) — each 1 to 16 of `a`–`z`, `0`–`9` and `-`, so the line needs no escaping; a name breaking that names nothing, its version still counting. The bridge answers it with the snapshot |
+| `hello` | `version`, and from 4 `id`, `board`, `link`; `body` from any version | What the deck takes (§10.5) and, from 4, which deck it is: `id` its Wi-Fi MAC's last two bytes in hex, `board` (`jc3636k718`), `link` (`usb`, `wifi`, or `mock` inside the firmware) — each 1 to 16 of `a`–`z`, `0`–`9` and `-`, so the line needs no escaping; a name breaking that names nothing, its version still counting. `body`, the bytes of a request's body the deck takes (the BYTE-90 deck 16384), is taken up to 16 KB; absent or not a positive whole number, 2048. Requests already held are cut again to it. The bridge answers it with the snapshot |
 | `decision` | `id`, `allow` | The answer to a request |
 | `answer` | `id`, `part`, `chosen` | The answer to a question's part: bit n for option n, several for a `multi`, 0 to leave the whole call to the terminal (§4) |
 | `wifi_join`, `wifi_pick`, `wifi_status` | §9 | The Wi-Fi join and pairing, taken from the cable only |
@@ -408,8 +411,10 @@ sequenceDiagram
 | 3 | `idle` and `active` too | The Nextion deck |
 | 4 | Names itself in its hello (`id`, `board`, `link`), and the Wi-Fi join and link (§9, §10.6) | The round knob |
 
-The bridge sets what it sends from the last hello (`Deck.asks_questions`, `Deck.shows_idle`), so an older deck never
-gets a record it would drop while a hook waits on it.
+The bridge sets what it sends from the last hello (`Deck.asks_questions`, `Deck.shows_idle`, `Deck.body_bytes`), so
+an older deck never gets a record it would drop while a hook waits on it.
+
+The hello's `body` needs no version: it says its own size, and a deck that sends none gets 2048 B bodies as before.
 
 The `limit` field on `agent` and `usage` (§10.2) needs no version: both decks read a record's fields by name and pass
 over one they do not know, and it brings no new `state`, so an older deck shows the limited turn as `done` and the

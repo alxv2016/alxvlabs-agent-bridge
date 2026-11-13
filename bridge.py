@@ -239,6 +239,7 @@ class Bridge:
                 version = r["version"] if isinstance(r.get("version"), int) else 0
                 self.deck.asks_questions = version >= QUESTIONS_VERSION
                 self.deck.shows_idle = version >= IDLE_VERSION
+                self.deck.take_body(r.get("body"))  # Before the snapshot: held requests go at the deck's size
                 self.name_deck(r, version)
             self.send_snapshot()  # The deck started, came back, or was asked: everything, after a reset
         elif r.get("type") == "decision" and isinstance(r.get("id"), int):
@@ -322,6 +323,7 @@ class Bridge:
             if count != self.lost_count:
                 return
             self.deck.asks_questions = False
+            self.deck.take_body(None)  # The next deck says its own
             self.named = None
             for rid in held:
                 waiter = self.waiting.get(rid)

@@ -41,7 +41,8 @@ NAME_CHARS = 40
 DETAIL_CHARS = 64
 MODEL_CHARS = 24  # Characters, its • three bytes: inside kModelChars' 32 bytes
 TOOL_CHARS = 48
-BODY_BYTES = 2048
+BODY_BYTES = 2048  # A request's body for a deck whose hello names no `body` (§10.3)
+MAX_BODY_BYTES = 16 * 1024  # The most a hello's `body` is taken at: escaped, it still fits a 40 KB line (§10.1)
 QUESTION_CHARS = 400  # The deck shows a question and its answers whole (its deck.h kQuestionChars, kOptionChars)
 OPTION_CHARS = 400
 MAX_OPTIONS = 4
@@ -110,12 +111,12 @@ def percent(value) -> int:
     return max(0, min(100, math.floor(float(value) + 0.5)))
 
 
-def cut_body(body: str) -> tuple[str, bool]:
-    """The body within BODY_BYTES of UTF-8, cut on a character, and whether it was cut."""
+def cut_body(body: str, limit: int = BODY_BYTES) -> tuple[str, bool]:
+    """The body within `limit` bytes of UTF-8, cut on a character, and whether it was cut."""
     data = body.encode()
-    if len(data) <= BODY_BYTES:
+    if len(data) <= limit:
         return body, False
-    return data[:BODY_BYTES].decode(errors="ignore"), True
+    return data[:limit].decode(errors="ignore"), True
 
 
 def tool_summary(tool: str, tool_input: dict) -> str:
@@ -265,12 +266,14 @@ class Deck:
         self.active_sid: str | None = None   # The session last prompted, the closest there is to the chat on view
         self.requests: dict[int, tuple[str, str]] = {}  # request id -> (agent key, tool)
         self.request_records: dict[int, dict] = {}       # request id -> its record, for a snapshot
+        self.request_bodies: dict[int, tuple] = {}       # request id -> (its body to MAX_BODY_BYTES, cut there), for a hello
         self.asks: dict[int, Ask] = {}                   # request id -> the question it is
         self.tool_uses: dict[tuple[str, str], str] = {}  # (agent key, tool) -> the id of its latest PreToolUse
         self.request_uses: dict[int, str] = {}           # request id -> the tool call it holds
         self.asks_questions = False  # The attached deck takes "question" records: its hello's version says (§4)
         self.shows_idle = True  # The attached deck takes "idle" and `active`: its hello's version says, and an old
                                 # deck would read "idle" as `Working`, and never make room for another agent (§3)
+        self.body_bytes = BODY_BYTES  # The request body the attached deck takes: its hello's `body` says (§10.3)
         self.next_agent, self.next_request = 1, 1
         self.rate_limits: dict = {}
         self.rate_limits_at = 0.0  # When they were measured: the newer of a status line and the usage cache wins
@@ -369,9 +372,22 @@ class Deck:
             self._forget(rid)
         return [{"type": "close", "id": rid, "reason": reason} for rid in ids]
 
+    def take_body(self, named) -> None:
+        """The request body the deck takes, from its hello's `body`: a whole number of bytes, at most
+        MAX_BODY_BYTES; none, or not a positive whole number, BODY_BYTES (§10.3). Held requests are cut again to it,
+        so the snapshot the hello brings carries each body at the deck's size, whenever the request came."""
+        size = named if isinstance(named, int) and not isinstance(named, bool) and named > 0 else BODY_BYTES
+        self.body_bytes = min(size, MAX_BODY_BYTES)
+        for rid, (whole, cut_whole) in self.request_bodies.items():
+            record = self.request_records.get(rid)
+            if record is not None:
+                body, cut = cut_body(whole, self.body_bytes)
+                record["body"], record["cut"] = body, cut or cut_whole
+
     def _forget(self, rid: int) -> tuple | None:
         """Request `rid` gone from every table; what the requests table held, or None."""
         self.request_records.pop(rid, None)
+        self.request_bodies.pop(rid, None)
         self.asks.pop(rid, None)
         self.request_uses.pop(rid, None)
         return self.requests.pop(rid, None)
@@ -648,7 +664,9 @@ class Deck:
                 out.append(record)
         elif event == "PermissionRequest":
             tool = h.get("tool_name", "")
-            body, cut = cut_body(request_body(tool, h.get("tool_input", {})))
+            whole, cut_whole = cut_body(request_body(tool, h.get("tool_input", {})), MAX_BODY_BYTES)
+            body, cut = cut_body(whole, self.body_bytes)
+            cut = cut or cut_whole
             rid = self.next_request
             self.next_request = self.next_request % 0xFFFFFFFF + 1
             self.requests[rid] = (key, tool)
@@ -659,6 +677,7 @@ class Deck:
             record = {"type": "request", "id": rid, "agent": a.id, "tool": fit(to_glass(tool), TOOL_CHARS),
                       "body": body, "cut": cut}
             self.request_records[rid] = record
+            self.request_bodies[rid] = (whole, cut_whole)
             out.append(record)
         elif event == "Notification":
             # A notice carries no agent_id: the terminal's prompt for a request already shown is the request's

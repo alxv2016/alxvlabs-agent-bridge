@@ -38,7 +38,7 @@ import install  # noqa: E402
 import pairing  # noqa: E402
 import plugin_state  # noqa: E402
 from replay import load, replay  # noqa: E402
-from state import BODY_BYTES, STALE_S, Deck, cut_body, model_name, to_glass  # noqa: E402
+from state import BODY_BYTES, MAX_BODY_BYTES, STALE_S, Deck, cut_body, model_name, to_glass  # noqa: E402
 from transcripts import Transcripts  # noqa: E402
 from usage_cache import UsageCache  # noqa: E402
 from usage_refresh import UsageRefresh  # noqa: E402
@@ -1261,6 +1261,37 @@ class Questions(unittest.TestCase):
         done = threading.Event()
         threading.Thread(target=lambda: (b.take("hook", h("SessionStart")), done.set()), daemon=True).start()
         self.assertTrue(done.wait(2))
+
+    def test_the_decks_hello_says_how_much_body_it_takes(self):
+        sent = []
+        b = bridge.Bridge(None, io.StringIO())
+        b.link = type("L", (), {"send": lambda self, r: sent.append(r)})()
+        long = "x" * 20000
+        b.deck.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": long}), 1)
+        rid = max(b.deck.request_records)
+        self.assertEqual(len(b.deck.request_records[rid]["body"]), BODY_BYTES)  # no hello yet: the old size
+        b.on_record({"type": "hello", "version": 4, "body": 16384})
+        request = [r for r in sent if r.get("type") == "request"][-1]
+        self.assertEqual((len(request["body"]), request["cut"]), (16384, True))  # held, and cut again at its size
+        self.assertLess(len(serial_link.encode(request)), 40 * 1024)  # inside the deck's kMaxLine
+        b.on_record({"type": "hello", "version": 4, "body": 10 ** 6})
+        self.assertEqual(b.deck.body_bytes, MAX_BODY_BYTES)
+        for bad in (None, 0, -5, "16384", True, 1.5):
+            b.on_record({"type": "hello", "version": 3, "body": bad})
+            self.assertEqual(b.deck.body_bytes, BODY_BYTES)
+        b.on_record({"type": "hello", "version": 4, "body": 16384})
+        b.deck.feed("hook", h("PermissionRequest", tool_name="Bash", tool_input={"command": "ls"}), 2)
+        short = b.deck.request_records[max(b.deck.request_records)]
+        self.assertEqual((short["body"], short["cut"]), ("ls", False))
+
+    def test_the_worst_body_still_fits_the_decks_line(self):
+        # Every byte escaped: a quote or backslash doubles, • (three bytes) goes as \u2022 (six); the line stays
+        # under the deck's 40 KB kMaxLine (DESIGN.md §10.1).
+        for ch in ('"', "\\", "\n", "\u2022"):
+            body, _ = cut_body(ch * MAX_BODY_BYTES, MAX_BODY_BYTES)
+            line = serial_link.encode({"type": "request", "id": 0xFFFFFFFF, "agent": 0xFFFF, "tool": "x" * 48,
+                                       "body": body, "cut": True})
+            self.assertLess(len(line), 40 * 1024)
 
     def test_the_decks_hello_says_whether_it_takes_questions(self):
         b = bridge.Bridge(None, io.StringIO())

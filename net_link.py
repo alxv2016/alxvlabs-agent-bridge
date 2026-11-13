@@ -37,7 +37,7 @@ CONNECT_S = 10.0     # the TCP connect and the TLS handshake; a dimmed deck runs
 AUTH_S = 10.0        # the challenge, from the handshake done
 POLL_S = 0.05        # how long the thread waits on the socket before it sends what is queued
 OUT_LINES = 256      # lines waiting for the deck; past it a line is dropped, as on the cable
-MAX_LINE = 9 * 1024  # a line past this is dropped: the deck's longest is 8 KB
+MAX_LINE = 41 * 1024  # a line past this is dropped: the deck's longest is 40 KB (its kMaxLine)
 CHALLENGE, ANSWER, AUTH_OK = b"agentdeck-challenge ", b"agentdeck-answer ", b"agentdeck-ok"
 
 
